@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#0B3A94"
+        android:pathData="M0,0h108v108h-108z" />
+    <!-- gerigi roda gigi: empat balok yang diputar -->
+    <group android:pivotX="54" android:pivotY="54" android:rotation="0">
+        <path android:fillColor="#4CC2FF" android:pathData="M49,26h10v56h-10z" />
+    </group>
+    <group android:pivotX="54" android:pivotY="54" android:rotation="45">
+        <path android:fillColor="#4CC2FF" android:pathData="M49,26h10v56h-10z" />
+    </group>
+    <group android:pivotX="54" android:pivotY="54" android:rotation="90">
+        <path android:fillColor="#4CC2FF" android:pathData="M49,26h10v56h-10z" />
+    </group>
+    <group android:pivotX="54" android:pivotY="54" android:rotation="135">
+        <path android:fillColor="#4CC2FF" android:pathData="M49,26h10v56h-10z" />
+    </group>
+    <!-- badan roda gigi dan lubang tengah -->
+    <path
+        android:fillColor="#4CC2FF"
+        android:pathData="M54,54m-22,0a22,22 0,1 1,44 0a22,22 0,1 1,-44 0" />
+    <path
+        android:fillColor="#0B3A94"
+        android:pathData="M54,54m-10,0a10,10 0,1 1,20 0a10,10 0,1 1,-20 0" />
+</vector>

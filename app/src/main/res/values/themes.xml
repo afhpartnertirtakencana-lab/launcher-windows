@@ -1,9 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Launcher: tema wallpaper (warna lain digambar lewat kode mengikuti pilihan tema Th) -->
     <style name="AppTheme" parent="android:Theme.DeviceDefault.Wallpaper.NoTitleBar">
         <item name="android:windowShowWallpaper">true</item>
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+
+    <!-- Pengaturan dan File Manager: dipilih saat runtime lewat setTheme() sesuai tema gelap/terang -->
+    <style name="AppDark" parent="android:Theme.DeviceDefault.NoActionBar">
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:colorAccent">#4CC2FF</item>
+    </style>
+
+    <style name="AppLight" parent="android:Theme.DeviceDefault.Light.NoActionBar">
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:colorAccent">#0078D4</item>
     </style>
 </resources>

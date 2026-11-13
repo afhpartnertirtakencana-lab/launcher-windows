@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Win Launcher</string>
+    <string name="settings_label">Pengaturan Win</string>
+    <string name="files_label">File Explorer</string>
 </resources>
