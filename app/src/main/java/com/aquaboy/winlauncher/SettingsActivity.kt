@@ -307,6 +307,7 @@ class SettingsActivity : Activity() {
         page("desktop", "Desktop", GlyphView.Kind.HOME, "personalize") {
             listOf(
                 SToggle(GlyphView.Kind.HOME, "Tampilkan ikon desktop", null, "desk_show", true),
+                SToggle(GlyphView.Kind.APPS, "Tampilkan widget desktop", "Tambah widget lewat tekan-lama pada desktop → Tambah widget", "widgets_show", true),
                 SSegment(GlyphView.Kind.APPS, "Ukuran ikon", null, listOf("Kecil", "Sedang", "Besar"), "desk_size", 1),
                 SHeader("Ikon di desktop"),
                 SCustom { pinManager("desktop") },

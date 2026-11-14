@@ -127,6 +127,7 @@ class MainActivity : Activity() {
     private lateinit var root: FrameLayout
     private lateinit var wallpaperView: WallpaperView
     private lateinit var desktop: FrameLayout
+    private var widgetLayer: WidgetLayer? = null
     private lateinit var scrim: View
     private lateinit var anchor: View
 
@@ -942,9 +943,18 @@ class MainActivity : Activity() {
         }
 
     // ---------- desktop ----------
+    internal fun renderDesktopNow() = renderDesktop()
+
     private fun renderDesktop() {
         if (!::desktop.isInitialized) return
         desktop.removeAllViews()
+        if (desktop.height <= 0) return
+        if (widgetLayer == null) widgetLayer = WidgetLayer(this, desktop, prefs)
+        renderDeskIcons()
+        widgetLayer?.render()
+    }
+
+    private fun renderDeskIcons() {
         if (!pb("desk_show", true)) return
         val h = desktop.height
         if (h <= 0) return
@@ -1243,6 +1253,7 @@ class MainActivity : Activity() {
         m.add(0, 2, 0, "Ganti wallpaper sistem…")
         m.add(0, 3, 0, if (Th.dark) "Beralih ke mode terang" else "Beralih ke mode gelap")
         m.add(0, 4, 0, "Personalisasi")
+        m.add(0, 6, 0, "Tambah widget…")
         m.add(0, 5, 0, "Segarkan")
         pop.setOnMenuItemClickListener { item ->
             try {
@@ -1257,6 +1268,7 @@ class MainActivity : Activity() {
                     4 -> startActivity(
                         Intent(this, SettingsActivity::class.java).putExtra(SettingsActivity.EXTRA_PAGE, "personalize")
                     )
+                    6 -> widgetLayer?.showPicker()
                     5 -> {
                         loadApps()
                         refreshAll()
@@ -1528,6 +1540,7 @@ class MainActivity : Activity() {
         dateText.text = DateFormat.getDateFormat(this).format(now)
         calTime.text = time
         calDate.text = SimpleDateFormat("EEEE, d MMMM yyyy", Locale.getDefault()).format(now)
+        widgetLayer?.tick()
     }
 
     private fun updateBattery(i: Intent) {
@@ -1541,6 +1554,7 @@ class MainActivity : Activity() {
             qsBatt.text = "Baterai $pct%" + if (charging) "  •  mengisi daya" else ""
         }
         battGlyph.charging = charging
+        widgetLayer?.tick()
     }
 
     private fun reg(r: BroadcastReceiver, f: IntentFilter): Intent? =

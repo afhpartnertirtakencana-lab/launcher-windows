@@ -78,6 +78,11 @@ class FilesActivity : Activity() {
 
     companion object {
         const val EXTRA_PATH = "path"
+        private const val COL_NAME = 280
+        private const val COL_DATE = 160
+        private const val COL_TYPE = 130
+        private const val COL_SIZE = 90
+        private const val TABLE_W = 768
         private const val REQ_PERM = 77
         private var clipFiles: List<File> = emptyList()
         private var clipCut = false
@@ -143,6 +148,8 @@ class FilesActivity : Activity() {
     private lateinit var trashBar: HorizontalScrollView
     private lateinit var banner: LinearLayout
     private lateinit var colHeader: LinearLayout
+    private lateinit var tableScroll: HorizontalScrollView
+    private lateinit var tableBox: LinearLayout
     private lateinit var grid: GridView
     private lateinit var homeScroll: ScrollView
     private lateinit var homeBox: LinearLayout
@@ -617,8 +624,9 @@ class FilesActivity : Activity() {
             visibility = View.GONE
             setPadding(dp(20), 0, dp(20), 0)
         }
-        main.addView(colHeader, LinearLayout.LayoutParams(MATCH, dp(30)))
-        main.addView(View(this).apply { setBackgroundColor(Th.p.stroke) }, LinearLayout.LayoutParams(MATCH, 1))
+        tableBox = ll(true)
+        tableBox.addView(colHeader, LinearLayout.LayoutParams(MATCH, dp(30)))
+        tableBox.addView(View(this).apply { setBackgroundColor(Th.p.stroke) }, LinearLayout.LayoutParams(MATCH, 1))
 
         // --- isi ---
         grid = GridView(this).apply {
@@ -653,7 +661,17 @@ class FilesActivity : Activity() {
             setPadding(dp(24), dp(24), dp(24), dp(24))
         }
         val content = FrameLayout(this)
-        content.addView(grid, FrameLayout.LayoutParams(MATCH, MATCH))
+        tableBox.addView(grid, LinearLayout.LayoutParams(MATCH, 0, 1f))
+        tableScroll = HorizontalScrollView(this).apply {
+            isFillViewport = true
+            isHorizontalScrollBarEnabled = true
+            overScrollMode = View.OVER_SCROLL_NEVER
+            addView(tableBox, FrameLayout.LayoutParams(MATCH, MATCH))
+            addOnLayoutChangeListener { _, l, _, r, _, ol, _, oldR, _ ->
+                if (r - l != oldR - ol) applyTableWidth()
+            }
+        }
+        content.addView(tableScroll, FrameLayout.LayoutParams(MATCH, MATCH))
         content.addView(homeScroll, FrameLayout.LayoutParams(MATCH, MATCH))
         content.addView(emptyView, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
         main.addView(content, LinearLayout.LayoutParams(MATCH, 0, 1f))
@@ -1014,13 +1032,28 @@ class FilesActivity : Activity() {
     }
 
     private fun updateColumns() {
-        val avail = if (grid.width > 0) grid.width else resources.displayMetrics.widthPixels - (if (tabletUi) dp(260) else 0)
+        val avail = if (::tableScroll.isInitialized && tableScroll.width > 0) tableScroll.width else resources.displayMetrics.widthPixels - (if (tabletUi) dp(260) else 0)
         val cols = when (viewMode) {
             2 -> max(2, avail / dp(112))
             3 -> max(2, avail / dp(160))
             else -> 1
         }
         if (grid.numColumns != cols) grid.numColumns = cols
+        applyTableWidth()
+    }
+
+    /** Mode Detail: tabel lebar seperti di Windows (geser ke samping bila layar sempit). */
+    private fun applyTableWidth() {
+        if (!::tableScroll.isInitialized) return
+        val viewport = if (tableScroll.width > 0) tableScroll.width
+        else resources.displayMetrics.widthPixels - (if (tabletUi) dp(260) else 0)
+        val want = if (viewMode == 0) max(viewport, dp(TABLE_W)) else MATCH
+        val lp = tableBox.layoutParams
+        if (lp.width != want) {
+            lp.width = want
+            tableBox.layoutParams = lp
+        }
+        if (viewMode != 0) tableScroll.scrollTo(0, 0)
     }
 
     private fun setViewMode(m: Int) {
@@ -1033,7 +1066,7 @@ class FilesActivity : Activity() {
     }
 
     private fun updateDetailHeader() {
-        val show = tabletUi && viewMode == 0 && loc != "home"
+        val show = viewMode == 0 && loc != "home"
         colHeader.visibility = if (show) View.VISIBLE else View.GONE
         if (!show) return
         colHeader.removeAllViews()
@@ -1045,11 +1078,11 @@ class FilesActivity : Activity() {
                 setPadding(dp(4), 0, dp(4), 0)
                 setOnClickListener { setSort(key) }
             }.also { colHeader.addView(it, LinearLayout.LayoutParams(w, MATCH, weight)) }
-        colHeader.addView(View(this), LinearLayout.LayoutParams(dp(64), 1))
-        head("Nama", 0, 0, 1f, Gravity.CENTER_VERTICAL)
-        head("Tanggal diubah", 1, dp(150), 0f, Gravity.CENTER_VERTICAL)
-        head("Jenis", 3, dp(120), 0f, Gravity.CENTER_VERTICAL)
-        head("Ukuran", 2, dp(90), 0f, Gravity.CENTER_VERTICAL or Gravity.END)
+        colHeader.addView(View(this), LinearLayout.LayoutParams(dp(68), 1))
+        head("Nama", 0, dp(COL_NAME), 0f, Gravity.CENTER_VERTICAL)
+        head("Tanggal diubah", 1, dp(COL_DATE), 0f, Gravity.CENTER_VERTICAL)
+        head("Jenis", 3, dp(COL_TYPE), 0f, Gravity.CENTER_VERTICAL)
+        head("Ukuran", 2, dp(COL_SIZE), 0f, Gravity.CENTER_VERTICAL or Gravity.END)
     }
 
     private fun setSort(key: Int) {
@@ -1107,7 +1140,7 @@ class FilesActivity : Activity() {
         h.checkIcon = chkIcon
 
         val isz = when (mode) {
-            0 -> if (tabletUi) 22 else 28
+            0 -> 22
             1 -> 24
             2 -> 52
             else -> 88
@@ -1146,8 +1179,8 @@ class FilesActivity : Activity() {
                 ellipsize = TextUtils.TruncateAt.END
             }
             h.name = nm
-            if (mode == 0 && tabletUi) {
-                root.addView(nm, LinearLayout.LayoutParams(0, WRAP, 1f))
+            if (mode == 0) {
+                root.addView(nm, LinearLayout.LayoutParams(dp(COL_NAME), WRAP))
                 val date = tv("", 13f, Th.p.dim).apply { maxLines = 1 }
                 val type = tv("", 13f, Th.p.dim).apply {
                     maxLines = 1
@@ -1157,24 +1190,13 @@ class FilesActivity : Activity() {
                     maxLines = 1
                     gravity = Gravity.END
                 }
-                root.addView(date, LinearLayout.LayoutParams(dp(150), WRAP))
-                root.addView(type, LinearLayout.LayoutParams(dp(120), WRAP))
-                root.addView(size, LinearLayout.LayoutParams(dp(90), WRAP))
+                root.addView(date, LinearLayout.LayoutParams(dp(COL_DATE), WRAP))
+                root.addView(type, LinearLayout.LayoutParams(dp(COL_TYPE), WRAP))
+                root.addView(size, LinearLayout.LayoutParams(dp(COL_SIZE), WRAP))
                 h.date = date
                 h.type = type
                 h.size = size
                 root.layoutParams = AbsListView.LayoutParams(MATCH, dp(40))
-            } else if (mode == 0) {
-                val col = ll(true)
-                col.addView(nm)
-                val sb = tv("", 12f, Th.p.dim).apply {
-                    maxLines = 1
-                    ellipsize = TextUtils.TruncateAt.MIDDLE
-                }
-                col.addView(sb)
-                h.sub = sb
-                root.addView(col, LinearLayout.LayoutParams(0, WRAP, 1f))
-                root.layoutParams = AbsListView.LayoutParams(MATCH, dp(58))
             } else {
                 root.addView(nm, LinearLayout.LayoutParams(0, WRAP, 1f))
                 root.layoutParams = AbsListView.LayoutParams(MATCH, dp(44))
