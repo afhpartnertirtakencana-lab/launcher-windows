@@ -26,9 +26,27 @@ jobs:
       - name: Build debug APK
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
+          set +e
+          ./gradlew assembleDebug --no-daemon --console=plain --stacktrace > build.log 2>&1
+          code=$?
+          if [ "$code" -ne 0 ]; then
+            msg=$(grep -E "^e: |^\* What went wrong|^Execution failed|^> |error:|AAPT|Manifest merger" build.log \
+              | sed -e 's#file:///home/runner/work/[^/]*/[^/]*/##' -e 's/%/%25/g' \
+              | head -40 | awk '{printf "%s%%0A", $0}')
+            echo "::error title=Gradle gagal::${msg}"
+          fi
+          exit "$code"
+
+      - name: Simpan log build
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          if-no-files-found: ignore
 
       - uses: actions/upload-artifact@v4
+        if: success()
         with:
           name: WinLauncher-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
