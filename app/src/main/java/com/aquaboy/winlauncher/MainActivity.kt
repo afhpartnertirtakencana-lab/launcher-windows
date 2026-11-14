@@ -335,13 +335,12 @@ class MainActivity : Activity() {
             val c = window.insetsController ?: return
             if (full) {
                 c.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                c.hide(WindowInsets.Type.systemBars())
+                c.hide(WindowInsets.Type.navigationBars())
             } else {
-                c.show(WindowInsets.Type.systemBars())
+                c.show(WindowInsets.Type.navigationBars())
             }
         } else {
-            val bits = View.SYSTEM_UI_FLAG_FULLSCREEN or
-                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+            val bits = View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
                 View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
             var f = window.decorView.systemUiVisibility
             f = if (full) f or bits else f and bits.inv()
@@ -515,7 +514,7 @@ class MainActivity : Activity() {
         startScroll.addView(startContent, FrameLayout.LayoutParams(MATCH, WRAP))
         startPanel.addView(startScroll, LinearLayout.LayoutParams(MATCH, 0, 1f))
 
-        val name = deviceName()
+        val name = Profile.name(this)
         val footer = ll(false, Gravity.CENTER_VERTICAL).apply {
             setBackgroundColor(if (Th.dark) 0x33000000 else 0x14000000)
             setPadding(dp(20), 0, dp(12), 0)
@@ -525,10 +524,7 @@ class MainActivity : Activity() {
             setPadding(dp(6), dp(6), dp(12), dp(6))
             setOnClickListener { openSettingsApp() }
         }
-        val avatar = tv(name.take(1).uppercase(), 13f, Th.onAccent, true).apply {
-            gravity = Gravity.CENTER
-            background = rounded(Th.accent, dpf(16f))
-        }
+        val avatar = Profile.avatar(this, 32, 13f)
         userBtn.addView(avatar, LinearLayout.LayoutParams(dp(32), dp(32)))
         userBtn.addView(
             tv(name, 13f).apply {

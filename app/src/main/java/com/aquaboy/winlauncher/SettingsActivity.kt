@@ -98,6 +98,8 @@ class SettingsActivity : Activity() {
     )
 
     private var current = "home"
+    private var navAvatar: FrameLayout? = null
+    private var navName: TextView? = null
     private val stack = ArrayList<String>()
     private var query = ""
     private var suppressWatcher = false
@@ -282,8 +284,7 @@ class SettingsActivity : Activity() {
                 SSegment(GlyphView.Kind.APPS, "Ukuran ikon", null, listOf("Kecil", "Sedang", "Besar"), "tb_size", 1),
                 SToggle(GlyphView.Kind.SEARCH, "Tombol cari", "Tampilkan tombol cari di taskbar", "tb_search", true),
                 SToggle(GlyphView.Kind.TIME, "Tampilkan tanggal", "Tanggal di bawah jam (tablet)", "tb_date", true),
-                SToggle(GlyphView.Kind.TASKBAR, "Sembunyikan taskbar otomatis", "Muncul saat kursor didekatkan ke tepi bawah layar, atau ketuk gagang kecil di bawah", "tb_autohide", false),
-                SToggle(GlyphView.Kind.UP, "Layar penuh", "Sembunyikan bilah status dan navigasi sistem (geser dari tepi untuk memunculkan sementara)", "fullscreen", false),
+                SToggle(GlyphView.Kind.UP, "Sembunyikan bilah navigasi Android", "Tombol navigasi sistem disembunyikan agar layar lebih luas; geser dari tepi bawah untuk memunculkannya sementara", "fullscreen", false),
                 SHeader("Aplikasi di taskbar"),
                 SCustom { pinManager("taskbar") }
             )
@@ -341,7 +342,7 @@ class SettingsActivity : Activity() {
 
         page("accounts", "Akun", GlyphView.Kind.ACCOUNTS, null) {
             listOf(
-                SCustom { hero(GlyphView.Kind.ACCOUNTS, deviceName(), "Akun lokal", null) },
+                SCustom { profileCard() },
                 sys(GlyphView.Kind.SYSTEM, "Akun & sinkronisasi", "Akun Google dan akun lain", "android.settings.SYNC_SETTINGS"),
                 sys(GlyphView.Kind.PLUS, "Tambah akun", null, "android.settings.ADD_ACCOUNT_SETTINGS"),
                 sys(GlyphView.Kind.ACCOUNTS, "Pengguna", "Pengguna ganda dan profil", "android.settings.USER_SETTINGS", "android.settings.SETTINGS")
@@ -572,6 +573,74 @@ class SettingsActivity : Activity() {
         if (sub2 != null) col.addView(tv(sub2, 12f, Th.p.faint).apply { setPadding(0, dp(2), 0, 0) })
         box.addView(col, LinearLayout.LayoutParams(0, WRAP, 1f))
         return box
+    }
+
+    // ---------- profil akun ----------
+    private val reqPhoto = 4711
+
+    private fun profileCard(): View {
+        val box = ll(true).apply {
+            background = rounded(Th.p.card, dpf(8f), Th.p.stroke, dp(1))
+            setPadding(dp(20), dp(20), dp(20), dp(16))
+        }
+        val top = ll(false, Gravity.CENTER_VERTICAL)
+        val holder = FrameLayout(this)
+        Profile.fill(holder, 72, 28f)
+        top.addView(holder, LinearLayout.LayoutParams(dp(72), dp(72)).apply { rightMargin = dp(18) })
+        val col = ll(true)
+        col.addView(tv(Profile.name(this), 20f, Th.p.text, true).apply {
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        })
+        col.addView(tv("Akun lokal", 13f, Th.p.dim).apply { setPadding(0, dp(3), 0, 0) })
+        top.addView(col, LinearLayout.LayoutParams(0, WRAP, 1f))
+        box.addView(top)
+
+        val actions = ll(false)
+        actions.addView(textButton("Ganti foto", true) {
+            val i = Intent(Intent.ACTION_GET_CONTENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE)
+            try {
+                startActivityForResult(Intent.createChooser(i, "Pilih foto"), reqPhoto)
+            } catch (e: Exception) {
+                Toast.makeText(this, "Tidak ada aplikasi galeri", Toast.LENGTH_SHORT).show()
+            }
+        })
+        actions.addView(textButton("Ubah nama", false) {
+            promptDialog("Ubah nama akun", Profile.name(this), "Nama", "Simpan") { v ->
+                if (v.isNotBlank()) {
+                    Profile.setName(this, v)
+                    afterProfileChange()
+                }
+            }
+        })
+        if (Profile.hasPhoto(this)) {
+            actions.addView(textButton("Hapus foto", false) {
+                Profile.clearPhoto(this)
+                afterProfileChange()
+            })
+        }
+        box.addView(actions, LinearLayout.LayoutParams(WRAP, WRAP).apply { topMargin = dp(12) })
+        return box
+    }
+
+    private fun afterProfileChange() {
+        bump()
+        navAvatar?.let { Profile.fill(it, 48, 18f) }
+        navName?.text = Profile.name(this)
+        showPage(current)
+    }
+
+    @Suppress("DEPRECATION")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == reqPhoto && resultCode == RESULT_OK) {
+            val uri = data?.data
+            if (uri != null && Profile.savePhoto(this, uri)) {
+                afterProfileChange()
+            } else {
+                Toast.makeText(this, "Foto tidak dapat dibaca", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     private fun bigStat(glyph: GlyphView, value: String, label: String): View {
@@ -885,19 +954,16 @@ class SettingsActivity : Activity() {
                 background = ripple(dpf(8f))
                 setOnClickListener { goTo("accounts") }
             }
-            val name = deviceName()
-            user.addView(
-                tv(name.take(1).uppercase(), 18f, Th.onAccent, true).apply {
-                    gravity = Gravity.CENTER
-                    background = rounded(Th.accent, dpf(24f))
-                },
-                LinearLayout.LayoutParams(dp(48), dp(48)).apply { rightMargin = dp(14) }
-            )
+            val holder = FrameLayout(this)
+            Profile.fill(holder, 48, 18f)
+            navAvatar = holder
+            user.addView(holder, LinearLayout.LayoutParams(dp(48), dp(48)).apply { rightMargin = dp(14) })
             val ucol = ll(true)
-            ucol.addView(tv(name, 15f, Th.p.text, true).apply {
+            navName = tv(Profile.name(this), 15f, Th.p.text, true).apply {
                 maxLines = 1
                 ellipsize = TextUtils.TruncateAt.END
-            })
+            }
+            ucol.addView(navName)
             ucol.addView(tv("Akun lokal", 12f, Th.p.dim))
             user.addView(ucol, LinearLayout.LayoutParams(0, WRAP, 1f))
             nav.addView(user, LinearLayout.LayoutParams(MATCH, WRAP).apply { bottomMargin = dp(14) })
