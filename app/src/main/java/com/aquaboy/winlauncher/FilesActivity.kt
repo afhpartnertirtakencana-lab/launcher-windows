@@ -3,6 +3,7 @@ package com.aquaboy.winlauncher
 import android.Manifest
 import android.app.Activity
 import android.content.ActivityNotFoundException
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
@@ -264,6 +265,7 @@ class FilesActivity : Activity() {
         Th.load(this)
         setTheme(if (Th.dark) R.style.AppDark else R.style.AppLight)
         super.onCreate(savedInstanceState)
+        Running.opened(ComponentName(this, FilesActivity::class.java).flattenToString())
         prefs = getSharedPreferences(Th.PREFS, MODE_PRIVATE)
         seenRev = prefs.getInt("rev", 0)
         tabletUi = resources.configuration.smallestScreenWidthDp >= 600
@@ -310,6 +312,7 @@ class FilesActivity : Activity() {
     }
 
     override fun onDestroy() {
+        Running.closed(ComponentName(this, FilesActivity::class.java).flattenToString())
         super.onDestroy()
         searchGen.incrementAndGet()
         loadGen.incrementAndGet()
@@ -390,6 +393,7 @@ class FilesActivity : Activity() {
             navPane.visibility = View.GONE
             rootFrame.addView(navPane, FrameLayout.LayoutParams(dp(300), MATCH, Gravity.START))
         }
+        attachWindowBar(rootFrame, "File Explorer", GlyphView.Kind.FOLDER)
         setContentView(rootFrame)
         applyBarIcons()
     }

@@ -360,3 +360,90 @@ fun Activity.applyBarIcons() {
 }
 
 fun clampInt(v: Int, lo: Int, hi: Int): Int = max(lo, min(hi, v))
+
+// ---------- jendela ala Windows: minimize / tutup + daftar jendela terbuka ----------
+
+/** Hitung jendela milik launcher yang sedang terbuka (Pengaturan, File Explorer). */
+object Running {
+    private val counts = HashMap<String, Int>()
+
+    fun opened(key: String) {
+        counts[key] = (counts[key] ?: 0) + 1
+    }
+
+    fun closed(key: String) {
+        val n = (counts[key] ?: 0) - 1
+        if (n <= 0) counts.remove(key) else counts[key] = n
+    }
+
+    fun isOpen(key: String): Boolean = (counts[key] ?: 0) > 0
+}
+
+/** Buka jendela milik launcher di task sendiri, supaya bisa diminimalkan tanpa menutup launcher. */
+fun Context.openOwnWindow(cls: Class<*>, extras: (android.content.Intent.() -> Unit)? = null) {
+    val i = android.content.Intent(this, cls).addFlags(
+        android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
+    )
+    extras?.invoke(i)
+    startActivity(i)
+}
+
+/** Garis kecil untuk tombol minimize. */
+private class DashView(ctx: Context) : View(ctx) {
+    private val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        strokeWidth = ctx.dpf(1.3f)
+        color = Th.p.text
+    }
+
+    override fun onDraw(c: android.graphics.Canvas) {
+        val w = width.toFloat()
+        val h = height.toFloat()
+        val half = context.dpf(5f)
+        c.drawLine(w / 2 - half, h / 2, w / 2 + half, h / 2, p)
+    }
+}
+
+/**
+ * Tambahkan bilah judul tipis dengan tombol minimize dan tutup di kanan atas,
+ * seperti jendela Windows. Seluruh isi [rootFrame] dipindah ke bawah bilah ini.
+ */
+fun Activity.attachWindowBar(rootFrame: android.widget.FrameLayout, title: String, kind: GlyphView.Kind) {
+    val kids = ArrayList<View>()
+    for (i in 0 until rootFrame.childCount) kids.add(rootFrame.getChildAt(i))
+    rootFrame.removeAllViews()
+    val content = android.widget.FrameLayout(this)
+    for (k in kids) content.addView(k)
+
+    val bar = ll(false, Gravity.CENTER_VERTICAL).apply {
+        setBackgroundColor(Th.p.bg)
+        setPadding(dp(12), 0, 0, 0)
+    }
+    bar.addView(icon(kind, Th.accent), LinearLayout.LayoutParams(dp(16), dp(16)).apply { rightMargin = dp(8) })
+    bar.addView(tv(title, 12f, Th.p.dim), LinearLayout.LayoutParams(0, WRAP, 1f))
+
+    fun btn(content: View, hover: Int, onClick: () -> Unit): View =
+        android.widget.FrameLayout(this).apply {
+            background = ripple(0f)
+            addView(content, android.widget.FrameLayout.LayoutParams(dp(16), dp(16), Gravity.CENTER))
+            setOnClickListener { onClick() }
+        }
+
+    bar.addView(btn(DashView(this), Th.p.cardHover) {
+        // Minimalkan: kembali ke desktop, jendela ini tetap hidup dan muncul di taskbar.
+        startActivity(
+            android.content.Intent(this, MainActivity::class.java).addFlags(
+                android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
+                    android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                    android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP
+            )
+        )
+    }, LinearLayout.LayoutParams(dp(46), MATCH))
+    bar.addView(btn(icon(GlyphView.Kind.CLOSE, Th.p.text), 0xFFE5484D.toInt()) {
+        finishAndRemoveTask()
+    }, LinearLayout.LayoutParams(dp(46), MATCH))
+
+    val col = ll(true)
+    col.addView(bar, LinearLayout.LayoutParams(MATCH, dp(34)))
+    col.addView(content, LinearLayout.LayoutParams(MATCH, 0, 1f))
+    rootFrame.addView(col, android.widget.FrameLayout.LayoutParams(MATCH, MATCH))
+}

@@ -36,7 +36,10 @@ internal enum class WType(val label: String, val desc: String, val glyph: GlyphV
     NOTE("Catatan", "Catatan singkat, ketuk untuk mengubah", GlyphView.Kind.DOC)
 }
 
-internal class WItem(val id: Long, val type: WType, var size: Int, var x: Int, var y: Int)
+internal class WItem(val id: Long, val type: WType, var x: Int, var y: Int, var w: Int, var h: Int) {
+    /** Kelas ukuran isi (0 kecil, 1 sedang, 2 besar) mengikuti lebar widget. */
+    val size: Int get() = WStore.sizeClass(w)
+}
 
 internal object WStore {
     private const val KEY = "widgets"
@@ -46,20 +49,32 @@ internal object WStore {
         val raw = sp.getString(KEY, "") ?: ""
         for (part in raw.split(";")) {
             val f = part.split(",")
-            if (f.size != 5) continue
+            if (f.size != 5 && f.size != 7) continue
             val t = try {
                 WType.valueOf(f[1])
             } catch (e: Exception) {
                 continue
             }
             val id = f[0].toLongOrNull() ?: continue
-            out.add(WItem(id, t, (f[2].toIntOrNull() ?: 1).coerceIn(0, 2), f[3].toIntOrNull() ?: 0, f[4].toIntOrNull() ?: 0))
+            val preset = dims((f[2].toIntOrNull() ?: 1).coerceIn(0, 2))
+            val w = if (f.size == 7) (f[5].toIntOrNull() ?: preset.first) else preset.first
+            val h = if (f.size == 7) (f[6].toIntOrNull() ?: preset.second) else preset.second
+            out.add(WItem(id, t, f[3].toIntOrNull() ?: 0, f[4].toIntOrNull() ?: 0, w.coerceAtLeast(MIN_W), h.coerceAtLeast(MIN_H)))
         }
         return out
     }
 
     fun save(sp: SharedPreferences, list: List<WItem>) {
-        sp.edit().putString(KEY, list.joinToString(";") { "${it.id},${it.type.name},${it.size},${it.x},${it.y}" }).apply()
+        sp.edit().putString(KEY, list.joinToString(";") { "${it.id},${it.type.name},${it.size},${it.x},${it.y},${it.w},${it.h}" }).apply()
+    }
+
+    const val MIN_W = 120
+    const val MIN_H = 80
+
+    fun sizeClass(w: Int): Int = when {
+        w < 190 -> 0
+        w < 260 -> 1
+        else -> 2
     }
 
     /** Ukuran widget dalam dp: kecil, sedang, besar. */
@@ -122,18 +137,28 @@ internal class WidgetLayer(
         if (!enabled()) return
         for (it in items) {
             val (view, update) = build(it)
-            val (wDp, hDp) = WStore.dims(it.size)
-            val w = min(act.dp(wDp), max(act.dp(100), desktop.width - act.dp(8)))
-            val h = min(act.dp(hDp), max(act.dp(64), desktop.height - act.dp(8)))
-            val lp = FrameLayout.LayoutParams(w, h)
-            lp.leftMargin = clampX(act.dp(it.x), w)
-            lp.topMargin = clampY(act.dp(it.y), h)
+            val r = rectOf(it)
+            val lp = FrameLayout.LayoutParams(r.width(), r.height())
+            lp.leftMargin = r.left
+            lp.topMargin = r.top
             attachGestures(view, it)
             desktop.addView(view, lp)
             update()
             updaters.add(update)
         }
     }
+
+    /** Posisi widget (px) setelah dijepit ke dalam desktop. */
+    private fun rectOf(it: WItem): android.graphics.Rect {
+        val w = min(act.dp(it.w), max(act.dp(WStore.MIN_W), desktop.width - act.dp(8)))
+        val h = min(act.dp(it.h), max(act.dp(WStore.MIN_H), desktop.height - act.dp(8)))
+        val l = clampX(act.dp(it.x), w)
+        val t = clampY(act.dp(it.y), h)
+        return android.graphics.Rect(l, t, l + w, t + h)
+    }
+
+    /** Area yang dipakai widget, supaya ikon desktop mengalir mengitarinya. */
+    fun rects(): List<android.graphics.Rect> = if (enabled()) items.map { rectOf(it) } else emptyList()
 
     fun tick() {
         for (u in updaters) u()
@@ -170,15 +195,14 @@ internal class WidgetLayer(
 
     private fun add(t: WType) {
         if (!enabled()) prefs.edit().putBoolean("widgets_show", true).apply()
-        val size = 1
-        val (wDp, hDp) = WStore.dims(size)
+        val (wDp, hDp) = WStore.dims(1)
         val deskWdp = (desktop.width / act.resources.displayMetrics.density).toInt()
         val deskHdp = (desktop.height / act.resources.displayMetrics.density).toInt()
         val per = max(1, (deskHdp - 12) / (hDp + 12))
         val idx = items.size
         val x = max(0, deskWdp - wDp - 16 - (idx / per) * (wDp + 12))
         val y = 12 + (idx % per) * (hDp + 12)
-        items.add(WItem(System.currentTimeMillis(), t, size, x, y))
+        items.add(WItem(System.currentTimeMillis(), t, x, y, wDp, hDp))
         WStore.save(prefs, items)
         relayout()
     }
@@ -233,6 +257,7 @@ internal class WidgetLayer(
                             item.x = (lp.leftMargin / d).toInt()
                             item.y = (lp.topMargin / d).toInt()
                             WStore.save(prefs, items)
+                            desktop.post { relayout() }
                         } else {
                             showMenu(view, item)
                         }
@@ -249,14 +274,18 @@ internal class WidgetLayer(
     private fun showMenu(anchor: View, item: WItem) {
         val pop = PopupMenu(Th.themed(act), anchor)
         val m = pop.menu
-        m.add(0, 1, 0, "Ukuran kecil").isChecked = item.size == 0
-        m.add(0, 2, 1, "Ukuran sedang").isChecked = item.size == 1
-        m.add(0, 3, 2, "Ukuran besar").isChecked = item.size == 2
-        m.add(0, 9, 3, "Hapus widget")
+        m.add(0, 4, 0, "Ubah ukuran bebas")
+        m.add(0, 1, 1, "Ukuran kecil")
+        m.add(0, 2, 2, "Ukuran sedang")
+        m.add(0, 3, 3, "Ukuran besar")
+        m.add(0, 9, 4, "Hapus widget")
         pop.setOnMenuItemClickListener { mi ->
             when (mi.itemId) {
+                4 -> startResize(anchor, item)
                 1, 2, 3 -> {
-                    item.size = mi.itemId - 1
+                    val (pw, ph) = WStore.dims(mi.itemId - 1)
+                    item.w = pw
+                    item.h = ph
                     WStore.save(prefs, items)
                     relayout()
                 }
@@ -271,6 +300,67 @@ internal class WidgetLayer(
         }
         pop.show()
         Toast.makeText(act, "Tahan lalu geser untuk memindahkan", Toast.LENGTH_SHORT).show()
+    }
+
+    /** Tampilkan gagang di sudut kanan bawah; seret untuk mengubah ukuran widget secara bebas. */
+    private fun startResize(view: View, item: WItem) {
+        val lp = view.layoutParams as FrameLayout.LayoutParams
+        view.foreground = act.rounded(0, act.dpf(18f), Th.accent, act.dp(2))
+        val hs = act.dp(30)
+        val hl = FrameLayout.LayoutParams(hs, hs)
+        val handle = FrameLayout(act).apply {
+            background = act.rounded(Th.accent, hs / 2f, 0xFFFFFFFF.toInt(), act.dp(2))
+            elevation = act.dpf(12f)
+        }
+        fun place() {
+            hl.leftMargin = lp.leftMargin + lp.width - hs
+            hl.topMargin = lp.topMargin + lp.height - hs
+            handle.layoutParams = hl
+        }
+        place()
+        var downX = 0f
+        var downY = 0f
+        var startW = 0
+        var startH = 0
+        var moved = false
+        handle.setOnTouchListener { v, e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = e.rawX
+                    downY = e.rawY
+                    startW = lp.width
+                    startH = lp.height
+                    moved = false
+                    v.parent?.requestDisallowInterceptTouchEvent(true)
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val nw = (startW + (e.rawX - downX)).toInt()
+                        .coerceIn(act.dp(WStore.MIN_W), max(act.dp(WStore.MIN_W), desktop.width - lp.leftMargin))
+                    val nh = (startH + (e.rawY - downY)).toInt()
+                        .coerceIn(act.dp(WStore.MIN_H), max(act.dp(WStore.MIN_H), desktop.height - lp.topMargin))
+                    if (abs(nw - startW) > act.dp(4) || abs(nh - startH) > act.dp(4)) moved = true
+                    lp.width = nw
+                    lp.height = nh
+                    view.layoutParams = lp
+                    place()
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (moved) {
+                        val d = act.resources.displayMetrics.density
+                        item.w = (lp.width / d).toInt().coerceAtLeast(WStore.MIN_W)
+                        item.h = (lp.height / d).toInt().coerceAtLeast(WStore.MIN_H)
+                        WStore.save(prefs, items)
+                    }
+                    desktop.post { relayout() }
+                    true
+                }
+                else -> true
+            }
+        }
+        desktop.addView(handle, hl)
+        Toast.makeText(act, "Seret lingkaran di sudut untuk mengubah ukuran", Toast.LENGTH_SHORT).show()
     }
 
     // ---------- isi widget ----------

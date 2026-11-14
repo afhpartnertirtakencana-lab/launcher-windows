@@ -118,6 +118,7 @@ class SettingsActivity : Activity() {
         Th.load(this)
         setTheme(if (Th.dark) R.style.AppDark else R.style.AppLight)
         super.onCreate(savedInstanceState)
+        Running.opened(ComponentName(this, SettingsActivity::class.java).flattenToString())
         prefs = getSharedPreferences(Th.PREFS, MODE_PRIVATE)
         pm = packageManager
         buildPages()
@@ -200,6 +201,11 @@ class SettingsActivity : Activity() {
 
     private fun bump() = Th.bump(this)
 
+    override fun onDestroy() {
+        Running.closed(ComponentName(this, SettingsActivity::class.java).flattenToString())
+        super.onDestroy()
+    }
+
     private fun loadKeys(key: String): MutableList<String> =
         (prefs.getString(key, "") ?: "").split("\n").filter { it.isNotEmpty() }.toMutableList()
 
@@ -226,7 +232,10 @@ class SettingsActivity : Activity() {
                 sys(GlyphView.Kind.BELL, "Notifikasi", "Notifikasi aplikasi dan jangan ganggu", "android.settings.ALL_APPS_NOTIFICATION_SETTINGS", "android.settings.NOTIFICATION_SETTINGS", "android.settings.SETTINGS"),
                 SLink(GlyphView.Kind.BATTERY, "Daya & baterai", "Status baterai, hemat baterai") { goTo("battery") },
                 SLink(GlyphView.Kind.DRIVE, "Penyimpanan", "Ruang penyimpanan dan memori") { goTo("storage") },
-                SLink(GlyphView.Kind.INFO, "Tentang", "Spesifikasi perangkat dan versi") { goTo("about") }
+                SLink(GlyphView.Kind.INFO, "Tentang", "Spesifikasi perangkat dan versi") { goTo("about") },
+                SHeader("Cadangkan & pulihkan tampilan"),
+                SLink(GlyphView.Kind.DOWNLOAD, "Simpan pengaturan", "Tema, taskbar, Start, desktop, widget, nama dan foto akun ke satu berkas") { backupSave() },
+                SLink(GlyphView.Kind.ARCHIVE, "Pulihkan pengaturan", "Kembalikan tampilan persis seperti saat disimpan") { backupRestore() }
             )
         }
 
@@ -513,7 +522,7 @@ class SettingsActivity : Activity() {
         })
         rows.add(SHeader("Kelola"))
         rows.add(SLink(GlyphView.Kind.FOLDER, "Buka File Manager", "Telusuri file dan folder") {
-            startActivity(Intent(this, FilesActivity::class.java))
+            openOwnWindow(FilesActivity::class.java)
         })
         rows.add(sys(GlyphView.Kind.DRIVE, "Penyimpanan Android", "Rincian per kategori dan bersihkan ruang", "android.settings.INTERNAL_STORAGE_SETTINGS"))
         return rows
@@ -631,9 +640,65 @@ class SettingsActivity : Activity() {
         showPage(current)
     }
 
+    private val reqBackupSave = 4712
+    private val reqBackupLoad = 4713
+
+    @Suppress("DEPRECATION")
+    private fun backupSave() {
+        val name = "WinLauncher-" + java.text.SimpleDateFormat("yyyyMMdd-HHmm", java.util.Locale.US).format(java.util.Date()) + ".json"
+        val i = Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+            .setType("application/json").putExtra(Intent.EXTRA_TITLE, name)
+        try {
+            startActivityForResult(i, reqBackupSave)
+        } catch (e: Exception) {
+            Toast.makeText(this, "Pemilih berkas tidak tersedia", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun backupRestore() {
+        confirmDialog(
+            "Pulihkan pengaturan",
+            "Semua pengaturan tampilan saat ini akan diganti dengan isi berkas cadangan. Lanjutkan?",
+            "Pilih berkas"
+        ) {
+            val i = Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
+            try {
+                startActivityForResult(i, reqBackupLoad)
+            } catch (e: Exception) {
+                Toast.makeText(this, "Pemilih berkas tidak tersedia", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     @Suppress("DEPRECATION")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (resultCode == RESULT_OK && requestCode == reqBackupSave) {
+            val uri = data?.data ?: return
+            try {
+                contentResolver.openOutputStream(uri)?.use { Backup.export(this, it) }
+                Toast.makeText(this, "Pengaturan disimpan", Toast.LENGTH_LONG).show()
+            } catch (e: Throwable) {
+                Toast.makeText(this, "Gagal menyimpan berkas", Toast.LENGTH_LONG).show()
+            }
+            return
+        }
+        if (resultCode == RESULT_OK && requestCode == reqBackupLoad) {
+            val uri = data?.data ?: return
+            val n = try {
+                contentResolver.openInputStream(uri)?.use { Backup.import(this, it) } ?: -1
+            } catch (e: Throwable) {
+                -1
+            }
+            if (n < 0) {
+                Toast.makeText(this, "Berkas bukan cadangan Win Launcher yang valid", Toast.LENGTH_LONG).show()
+            } else {
+                Toast.makeText(this, "Pengaturan dipulihkan", Toast.LENGTH_LONG).show()
+                recreate()
+            }
+            return
+        }
         if (requestCode == reqPhoto && resultCode == RESULT_OK) {
             val uri = data?.data
             if (uri != null && Profile.savePhoto(this, uri)) {
@@ -995,6 +1060,7 @@ class SettingsActivity : Activity() {
             rootFrame.addView(body, FrameLayout.LayoutParams(MATCH, MATCH))
         }
 
+        attachWindowBar(rootFrame, "Pengaturan", GlyphView.Kind.GEAR)
         setContentView(rootFrame)
         applyBarIcons()
     }

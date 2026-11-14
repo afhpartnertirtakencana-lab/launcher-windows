@@ -232,6 +232,7 @@ class MainActivity : Activity() {
             recreate()
             return
         }
+        purgeClosedWindows()
         updateClock()
         applyImmersive()
         Crash.take(this)?.let { showCrashReport(it) }
@@ -852,7 +853,10 @@ class MainActivity : Activity() {
         try {
             if (app.pkg == packageName) {
                 // Pengaturan Win / File Explorer: buka langsung di task launcher.
-                startActivity(Intent().setClassName(this, app.cn.className))
+                startActivity(
+                    Intent().setClassName(this, app.cn.className)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+                )
             } else {
                 val i = Intent(Intent.ACTION_MAIN)
                     .addCategory(Intent.CATEGORY_LAUNCHER)
@@ -893,8 +897,21 @@ class MainActivity : Activity() {
 
     private fun openSettingsApp() {
         closePanels()
-        startActivity(Intent(this, SettingsActivity::class.java))
+        openOwnWindow(SettingsActivity::class.java)
     }
+
+    /** Jendela milik launcher yang sudah ditutup dihapus dari daftar terbuka. */
+    private fun purgeClosedWindows() {
+        val before = recents.size
+        recents.removeAll { it.startsWith("$packageName/") && !Running.isOpen(it) }
+        if (recents.size != before) {
+            save("recents", recents)
+            renderTaskbar()
+        }
+    }
+
+    private fun isOpenWindow(app: AppEntry): Boolean =
+        if (app.pkg == packageName) Running.isOpen(app.key) else recents.contains(app.key)
 
     // ---------- taskbar ----------
     private fun renderTaskbar() {
@@ -914,7 +931,11 @@ class MainActivity : Activity() {
         val fixed = if (showSearch) 2 else 1
         val maxIcons = max(0, ((room - fixed * 44f) / 44f).toInt())
 
-        for (app in taskbarPins.mapNotNull { byKey[it] }.take(maxIcons)) {
+        val pinned = taskbarPins.mapNotNull { byKey[it] }
+        val openExtra = recents.mapNotNull { byKey[it] }
+            .filter { it.key !in taskbarPins && isOpenWindow(it) }
+            .take(5)
+        for (app in (pinned + openExtra).take(maxIcons)) {
             center.addView(taskIcon(app), btnLp())
         }
     }
@@ -927,10 +948,10 @@ class MainActivity : Activity() {
                 ImageView(this@MainActivity).apply { setImageBitmap(iconOf(app)) },
                 FrameLayout.LayoutParams(s, s, Gravity.CENTER)
             )
-            if (recents.take(3).contains(app.key)) {
+            if (isOpenWindow(app)) {
                 addView(
-                    View(this@MainActivity).apply { background = rounded(Th.p.faint, dpf(2f)) },
-                    FrameLayout.LayoutParams(dp(8), dp(3), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply {
+                    View(this@MainActivity).apply { background = rounded(Th.accent, dpf(2f)) },
+                    FrameLayout.LayoutParams(dp(14), dp(3), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply {
                         bottomMargin = dp(1)
                     }
                 )
@@ -950,8 +971,16 @@ class MainActivity : Activity() {
         desktop.removeAllViews()
         if (desktop.height <= 0) return
         if (widgetLayer == null) widgetLayer = WidgetLayer(this, desktop, prefs)
-        renderDeskIcons()
-        widgetLayer?.render()
+        try {
+            renderDeskIcons()
+        } catch (e: Throwable) {
+            Toast.makeText(this, "Gagal menata ikon desktop", Toast.LENGTH_SHORT).show()
+        }
+        try {
+            widgetLayer?.render()
+        } catch (e: Throwable) {
+            Toast.makeText(this, "Widget gagal ditampilkan", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun renderDeskIcons() {
@@ -962,13 +991,26 @@ class MainActivity : Activity() {
         val cellW = dp(big + 44)
         val cellH = dp(big + 52)
         val rows = max(1, h / cellH)
-        desktopPins.mapNotNull { byKey[it] }.forEachIndexed { idx, app ->
-            val col = idx / rows
-            val row = idx % rows
+        // Ikon mengalir mengitari widget, jadi tidak pernah tertutup.
+        val blocked = widgetLayer?.rects() ?: emptyList()
+        val inset = dp(6)
+        var col = 0
+        var row = 0
+        val r = Rect()
+        for (app in desktopPins.mapNotNull { byKey[it] }) {
+            var guard = 0
+            while (guard++ < 600) {
+                r.set(col * cellW + inset, row * cellH + inset, (col + 1) * cellW - inset, (row + 1) * cellH - inset)
+                if (blocked.none { Rect.intersects(it, r) }) break
+                row++
+                if (row >= rows) { row = 0; col++ }
+            }
             val lp = FrameLayout.LayoutParams(cellW, cellH)
             lp.leftMargin = col * cellW
             lp.topMargin = row * cellH
             desktop.addView(desktopIcon(app, big), lp)
+            row++
+            if (row >= rows) { row = 0; col++ }
         }
     }
 
@@ -1215,6 +1257,7 @@ class MainActivity : Activity() {
         m.add(0, 1, 0, if (app.key in startPins) "Lepas dari Start" else "Sematkan ke Start")
         m.add(0, 2, 0, if (app.key in taskbarPins) "Lepas dari taskbar" else "Sematkan ke taskbar")
         m.add(0, 3, 0, if (app.key in desktopPins) "Hapus dari desktop" else "Tambahkan ke desktop")
+        if (app.key in recents && app.pkg != packageName) m.add(0, 6, 0, "Hapus dari daftar terbuka")
         if (app.pkg != packageName) {
             m.add(0, 4, 0, "Info aplikasi")
             m.add(0, 5, 0, "Copot pemasangan")
@@ -1225,6 +1268,11 @@ class MainActivity : Activity() {
                     1 -> togglePin(startPins, app.key, "start")
                     2 -> togglePin(taskbarPins, app.key, "taskbar")
                     3 -> togglePin(desktopPins, app.key, "desktop")
+                    6 -> {
+                        recents.remove(app.key)
+                        save("recents", recents)
+                        renderTaskbar()
+                    }
                     4 -> startActivity(
                         Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", app.pkg, null))
                     )
@@ -1265,9 +1313,7 @@ class MainActivity : Activity() {
                     }
                     2 -> startActivity(Intent.createChooser(Intent(Intent.ACTION_SET_WALLPAPER), "Pilih wallpaper"))
                     3 -> toggleDark()
-                    4 -> startActivity(
-                        Intent(this, SettingsActivity::class.java).putExtra(SettingsActivity.EXTRA_PAGE, "personalize")
-                    )
+                    4 -> openOwnWindow(SettingsActivity::class.java) { putExtra(SettingsActivity.EXTRA_PAGE, "personalize") }
                     6 -> widgetLayer?.showPicker()
                     5 -> {
                         loadApps()
