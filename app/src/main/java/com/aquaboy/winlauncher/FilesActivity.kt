@@ -1133,7 +1133,7 @@ class FilesActivity : Activity() {
 
     private fun makeHolder(mode: Int): FmHolder {
         val tile = mode >= 2
-        val root = ll(!tile, if (tile) Gravity.CENTER_HORIZONTAL else Gravity.CENTER_VERTICAL)
+        val root = ll(tile, if (tile) Gravity.CENTER_HORIZONTAL else Gravity.CENTER_VERTICAL)
         val h = FmHolder(root)
 
         val chkIcon = icon(FmK.CHECK, Th.onAccent)

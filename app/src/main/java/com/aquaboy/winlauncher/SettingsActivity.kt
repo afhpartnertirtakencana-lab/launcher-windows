@@ -233,10 +233,7 @@ class SettingsActivity : Activity() {
                 SLink(GlyphView.Kind.BATTERY, "Daya & baterai", "Status baterai, hemat baterai") { goTo("battery") },
                 SLink(GlyphView.Kind.DRIVE, "Penyimpanan", "Ruang penyimpanan dan memori") { goTo("storage") },
                 SLink(GlyphView.Kind.INFO, "Tentang", "Spesifikasi perangkat dan versi") { goTo("about") },
-                SHeader("Cadangkan & pulihkan tampilan"),
-                SLink(GlyphView.Kind.DOWNLOAD, "Simpan pengaturan", "Tema, taskbar, Start, desktop, widget, nama dan foto akun ke satu berkas") { backupSave() },
-                SLink(GlyphView.Kind.ARCHIVE, "Pulihkan pengaturan", "Kembalikan tampilan persis seperti saat disimpan") { backupRestore() }
-            )
+            ) + backupRows()
         }
 
         page("battery", "Daya & baterai", GlyphView.Kind.BATTERY, "system") { batteryRows() }
@@ -284,7 +281,7 @@ class SettingsActivity : Activity() {
                 SLink(GlyphView.Kind.TASKBAR, "Taskbar", "Perataan, ukuran ikon, tombol cari") { goTo("taskbar") },
                 SLink(GlyphView.Kind.START, "Start", "Kolom, rekomendasi, aplikasi tersemat") { goTo("start") },
                 SLink(GlyphView.Kind.HOME, "Desktop", "Ikon pintasan di layar utama") { goTo("desktop") }
-            )
+            ) + backupRows()
         }
 
         page("taskbar", "Taskbar", GlyphView.Kind.TASKBAR, "personalize") {
@@ -356,7 +353,7 @@ class SettingsActivity : Activity() {
                 sys(GlyphView.Kind.SYSTEM, "Akun & sinkronisasi", "Akun Google dan akun lain", "android.settings.SYNC_SETTINGS"),
                 sys(GlyphView.Kind.PLUS, "Tambah akun", null, "android.settings.ADD_ACCOUNT_SETTINGS"),
                 sys(GlyphView.Kind.ACCOUNTS, "Pengguna", "Pengguna ganda dan profil", "android.settings.USER_SETTINGS", "android.settings.SETTINGS")
-            )
+            ) + backupRows()
         }
 
         page("time", "Waktu & bahasa", GlyphView.Kind.TIME, null) {
@@ -639,6 +636,13 @@ class SettingsActivity : Activity() {
         navName?.text = Profile.name(this)
         showPage(current)
     }
+
+    /** Menu simpan/pulihkan: tampil di Sistem, Personalisasi, dan Akun. */
+    private fun backupRows(): List<SRow> = listOf(
+        SHeader("Cadangkan & pulihkan tampilan"),
+        SLink(GlyphView.Kind.DOWNLOAD, "Simpan pengaturan", "Tema, taskbar, Start, desktop, widget, nama dan foto akun ke satu berkas") { backupSave() },
+        SLink(GlyphView.Kind.ARCHIVE, "Pulihkan pengaturan", "Kembalikan tampilan persis seperti saat disimpan") { backupRestore() }
+    )
 
     private val reqBackupSave = 4712
     private val reqBackupLoad = 4713

@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.SharedPreferences
+import android.content.res.ColorStateList
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
@@ -19,6 +20,7 @@ import android.view.View
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.PopupMenu
+import android.widget.SeekBar
 import android.widget.TextClock
 import android.widget.TextView
 import android.widget.Toast
@@ -136,6 +138,16 @@ internal class WidgetLayer(
         updaters.clear()
         if (!enabled()) return
         for (it in items) {
+            try {
+                renderOne(it)
+            } catch (e: Throwable) {
+                Toast.makeText(act, "Widget ${it.type.label} gagal: ${e.javaClass.simpleName} ${e.message ?: ""}".take(120), Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun renderOne(it: WItem) {
+        run {
             val (view, update) = build(it)
             val r = rectOf(it)
             val lp = FrameLayout.LayoutParams(r.width(), r.height())
@@ -274,7 +286,7 @@ internal class WidgetLayer(
     private fun showMenu(anchor: View, item: WItem) {
         val pop = PopupMenu(Th.themed(act), anchor)
         val m = pop.menu
-        m.add(0, 4, 0, "Ubah ukuran bebas")
+        m.add(0, 4, 0, "Ubah ukuran…")
         m.add(0, 1, 1, "Ukuran kecil")
         m.add(0, 2, 2, "Ukuran sedang")
         m.add(0, 3, 3, "Ukuran besar")
@@ -302,65 +314,57 @@ internal class WidgetLayer(
         Toast.makeText(act, "Tahan lalu geser untuk memindahkan", Toast.LENGTH_SHORT).show()
     }
 
-    /** Tampilkan gagang di sudut kanan bawah; seret untuk mengubah ukuran widget secara bebas. */
+    /** Dialog dengan penggeser lebar dan tinggi; ukuran widget berubah langsung saat digeser. */
     private fun startResize(view: View, item: WItem) {
         val lp = view.layoutParams as FrameLayout.LayoutParams
-        view.foreground = act.rounded(0, act.dpf(18f), Th.accent, act.dp(2))
-        val hs = act.dp(30)
-        val hl = FrameLayout.LayoutParams(hs, hs)
-        val handle = FrameLayout(act).apply {
-            background = act.rounded(Th.accent, hs / 2f, 0xFFFFFFFF.toInt(), act.dp(2))
-            elevation = act.dpf(12f)
+        val d = act.resources.displayMetrics.density
+        val maxW = max(WStore.MIN_W + 20, (desktop.width / d).toInt() - 8)
+        val maxH = max(WStore.MIN_H + 20, (desktop.height / d).toInt() - 8)
+
+        fun apply() {
+            lp.width = min(act.dp(item.w), desktop.width)
+            lp.height = min(act.dp(item.h), desktop.height)
+            view.layoutParams = lp
         }
-        fun place() {
-            hl.leftMargin = lp.leftMargin + lp.width - hs
-            hl.topMargin = lp.topMargin + lp.height - hs
-            handle.layoutParams = hl
-        }
-        place()
-        var downX = 0f
-        var downY = 0f
-        var startW = 0
-        var startH = 0
-        var moved = false
-        handle.setOnTouchListener { v, e ->
-            when (e.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    downX = e.rawX
-                    downY = e.rawY
-                    startW = lp.width
-                    startH = lp.height
-                    moved = false
-                    v.parent?.requestDisallowInterceptTouchEvent(true)
-                    true
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    val nw = (startW + (e.rawX - downX)).toInt()
-                        .coerceIn(act.dp(WStore.MIN_W), max(act.dp(WStore.MIN_W), desktop.width - lp.leftMargin))
-                    val nh = (startH + (e.rawY - downY)).toInt()
-                        .coerceIn(act.dp(WStore.MIN_H), max(act.dp(WStore.MIN_H), desktop.height - lp.topMargin))
-                    if (abs(nw - startW) > act.dp(4) || abs(nh - startH) > act.dp(4)) moved = true
-                    lp.width = nw
-                    lp.height = nh
-                    view.layoutParams = lp
-                    place()
-                    true
-                }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    if (moved) {
-                        val d = act.resources.displayMetrics.density
-                        item.w = (lp.width / d).toInt().coerceAtLeast(WStore.MIN_W)
-                        item.h = (lp.height / d).toInt().coerceAtLeast(WStore.MIN_H)
-                        WStore.save(prefs, items)
+
+        fun slider(label: String, lo: Int, hi: Int, cur: Int, onChange: (Int) -> Unit): View {
+            val col = act.ll(true)
+            val head = act.tv("$label: ${cur.coerceIn(lo, hi)} dp", 13f, Th.p.text)
+            val sb = SeekBar(act).apply {
+                max = hi - lo
+                progress = (cur - lo).coerceIn(0, hi - lo)
+                progressTintList = ColorStateList.valueOf(Th.accent)
+                thumbTintList = ColorStateList.valueOf(Th.accent)
+                setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                    override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
+                        val v = lo + p
+                        head.text = "$label: $v dp"
+                        onChange(v)
                     }
-                    desktop.post { relayout() }
-                    true
-                }
-                else -> true
+
+                    override fun onStartTrackingTouch(s: SeekBar?) {}
+                    override fun onStopTrackingTouch(s: SeekBar?) {}
+                })
             }
+            col.addView(head)
+            col.addView(sb, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = act.dp(10) })
+            return col
         }
-        desktop.addView(handle, hl)
-        Toast.makeText(act, "Seret lingkaran di sudut untuk mengubah ukuran", Toast.LENGTH_SHORT).show()
+
+        val box = act.ll(true)
+        box.addView(slider("Lebar", WStore.MIN_W, maxW, item.w) { v ->
+            item.w = v
+            apply()
+        })
+        box.addView(slider("Tinggi", WStore.MIN_H, maxH, item.h) { v ->
+            item.h = v
+            apply()
+        })
+        val dlg = act.showDialog("Ubah ukuran widget", box, "Selesai", null)
+        dlg.setOnDismissListener {
+            WStore.save(prefs, items)
+            relayout()
+        }
     }
 
     // ---------- isi widget ----------
