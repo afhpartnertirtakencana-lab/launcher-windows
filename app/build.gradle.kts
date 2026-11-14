@@ -11,8 +11,18 @@ android {
         applicationId = "com.aquaboy.winlauncher"
         minSdk = 24
         targetSdk = 35
-        versionCode = 2
-        versionName = "2.0"
+        versionCode = 3
+        versionName = "2.3"
+    }
+
+    // Kunci tetap supaya setiap build bertanda tangan sama dan bisa dipasang sebagai pembaruan.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("winlauncher.keystore")
+            storePassword = "winlauncher"
+            keyAlias = "winlauncher"
+            keyPassword = "winlauncher"
+        }
     }
 
     buildTypes {
