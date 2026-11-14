@@ -282,6 +282,8 @@ class SettingsActivity : Activity() {
                 SSegment(GlyphView.Kind.APPS, "Ukuran ikon", null, listOf("Kecil", "Sedang", "Besar"), "tb_size", 1),
                 SToggle(GlyphView.Kind.SEARCH, "Tombol cari", "Tampilkan tombol cari di taskbar", "tb_search", true),
                 SToggle(GlyphView.Kind.TIME, "Tampilkan tanggal", "Tanggal di bawah jam (tablet)", "tb_date", true),
+                SToggle(GlyphView.Kind.TASKBAR, "Sembunyikan taskbar otomatis", "Muncul saat kursor didekatkan ke tepi bawah layar, atau ketuk gagang kecil di bawah", "tb_autohide", false),
+                SToggle(GlyphView.Kind.UP, "Layar penuh", "Sembunyikan bilah status dan navigasi sistem (geser dari tepi untuk memunculkan sementara)", "fullscreen", false),
                 SHeader("Aplikasi di taskbar"),
                 SCustom { pinManager("taskbar") }
             )

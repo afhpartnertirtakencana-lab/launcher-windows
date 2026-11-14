@@ -3,6 +3,8 @@ package com.aquaboy.winlauncher
 import android.app.Activity
 import android.content.BroadcastReceiver
 import android.content.ComponentName
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -35,7 +37,9 @@ import android.text.TextWatcher
 import android.text.format.DateFormat
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
+import android.view.WindowInsetsController
 import android.view.WindowInsets
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
@@ -101,6 +105,11 @@ class MainActivity : Activity() {
     private var query = ""
     private var suppressWatcher = false
     private var panel = P_NONE
+    private var tbShown = true
+    private lateinit var edgeHandle: View
+    private val hideTaskbarRunnable = Runnable {
+        if (autoHide() && panel == P_NONE) setTaskbarShown(false)
+    }
     private var seenRev = 0
     private var askedWriteSettings = false
 
@@ -183,6 +192,7 @@ class MainActivity : Activity() {
         buildUi()
         loadApps()
         refreshAll()
+        applyImmersive()
     }
 
     override fun onStart() {
@@ -222,6 +232,8 @@ class MainActivity : Activity() {
             return
         }
         updateClock()
+        applyImmersive()
+        Crash.take(this)?.let { showCrashReport(it) }
     }
 
     override fun onNewIntent(intent: Intent?) {
@@ -232,6 +244,114 @@ class MainActivity : Activity() {
     override fun onBackPressed() {
         // Launcher tidak boleh keluar; tombol Back hanya menutup panel.
         closePanels()
+    }
+
+    // ---------- laporan crash ----------
+    private fun showCrashReport(text: String) {
+        val shown = tv(text.take(1800), 10f, Th.p.dim).apply {
+            typeface = Typeface.MONOSPACE
+            maxLines = 22
+            ellipsize = TextUtils.TruncateAt.END
+            setTextIsSelectable(true)
+        }
+        val box = ll(true)
+        box.addView(tv("Salin laporan ini dan kirim ke pengembang agar masalahnya bisa diperbaiki.", 13f, Th.p.text))
+        box.addView(shown, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(10) })
+        showDialog("Aplikasi sempat berhenti", box, "Salin", "Tutup") {
+            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            cm.setPrimaryClip(ClipData.newPlainText("crash", text))
+            Toast.makeText(this, "Laporan disalin", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // ---------- taskbar auto-hide & layar penuh ----------
+    private fun autoHide(): Boolean = pb("tb_autohide", false)
+
+    private fun setTaskbarShown(show: Boolean, animate: Boolean = true) {
+        tbShown = show
+        val target = if (!autoHide() || show) 0f else (tbHeight() + insB + dp(2)).toFloat()
+        taskbar.animate().cancel()
+        if (animate && Th.animations) {
+            taskbar.animate().translationY(target).setDuration(160).start()
+        } else {
+            taskbar.translationY = target
+        }
+        edgeHandle.visibility = if (autoHide() && !show) View.VISIBLE else View.GONE
+    }
+
+    private fun showTaskbar() {
+        handler.removeCallbacks(hideTaskbarRunnable)
+        if (autoHide() && !tbShown) setTaskbarShown(true)
+        scheduleHide()
+    }
+
+    private fun scheduleHide(delay: Long = 2200L) {
+        handler.removeCallbacks(hideTaskbarRunnable)
+        if (autoHide() && panel == P_NONE) handler.postDelayed(hideTaskbarRunnable, delay)
+    }
+
+    private fun onPanelChanged(id: Int) {
+        if (!::edgeHandle.isInitialized) return
+        if (id != P_NONE) {
+            handler.removeCallbacks(hideTaskbarRunnable)
+            if (autoHide() && !tbShown) setTaskbarShown(true)
+        } else {
+            scheduleHide()
+        }
+    }
+
+    /** Kursor/mouse didekatkan ke tepi bawah layar: munculkan taskbar; dijauhkan: sembunyikan lagi. */
+    override fun dispatchGenericMotionEvent(ev: MotionEvent?): Boolean {
+        if (ev != null && ::edgeHandle.isInitialized && autoHide() &&
+            ev.actionMasked == MotionEvent.ACTION_HOVER_MOVE
+        ) {
+            val h = resources.displayMetrics.heightPixels
+            val barTop = h - (tbHeight() + insB)
+            if (ev.rawY >= h - dp(8)) {
+                showTaskbar()
+            } else if (tbShown && ev.rawY >= barTop) {
+                handler.removeCallbacks(hideTaskbarRunnable)
+            } else if (tbShown && panel == P_NONE && ev.rawY < barTop - dp(12)) {
+                scheduleHide(500L)
+            }
+        }
+        return super.dispatchGenericMotionEvent(ev)
+    }
+
+    override fun dispatchTouchEvent(ev: MotionEvent?): Boolean {
+        if (ev != null && ::edgeHandle.isInitialized && autoHide() && tbShown) {
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_DOWN -> handler.removeCallbacks(hideTaskbarRunnable)
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> scheduleHide()
+            }
+        }
+        return super.dispatchTouchEvent(ev)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun applyImmersive() {
+        val full = pb("fullscreen", false)
+        if (Build.VERSION.SDK_INT >= 30) {
+            val c = window.insetsController ?: return
+            if (full) {
+                c.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                c.hide(WindowInsets.Type.systemBars())
+            } else {
+                c.show(WindowInsets.Type.systemBars())
+            }
+        } else {
+            val bits = View.SYSTEM_UI_FLAG_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+            var f = window.decorView.systemUiVisibility
+            f = if (full) f or bits else f and bits.inv()
+            window.decorView.systemUiVisibility = f
+        }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) applyImmersive()
     }
 
     // ---------- window ----------
@@ -580,6 +700,21 @@ class MainActivity : Activity() {
         taskbar.addView(divider, FrameLayout.LayoutParams(MATCH, 1, Gravity.TOP))
 
         root.addView(taskbar, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM))
+
+        // Gagang kecil di tepi bawah saat taskbar tersembunyi (untuk layar sentuh).
+        edgeHandle = FrameLayout(this).apply {
+            visibility = View.GONE
+            addView(
+                View(this@MainActivity).apply { background = rounded(Th.withAlpha(Th.p.text, 0x99), dpf(2f)) },
+                FrameLayout.LayoutParams(dp(44), dp(4), Gravity.CENTER)
+            )
+            setOnTouchListener { _, e ->
+                if (e.actionMasked == MotionEvent.ACTION_DOWN) showTaskbar()
+                true
+            }
+        }
+        root.addView(edgeHandle, FrameLayout.LayoutParams(dp(160), dp(30), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL))
+        tbShown = !autoHide()
     }
 
     // ---------- layout ----------
@@ -594,10 +729,17 @@ class MainActivity : Activity() {
 
         taskbar.setPadding(insL, 0, insR, insB)
 
+        val hide = autoHide()
         (desktop.layoutParams as FrameLayout.LayoutParams).setMargins(
-            insL + dp(4), insT + dp(8), insR, tbH + insB
+            insL + dp(4), insT + dp(8), insR, (if (hide) 0 else tbH) + insB
         )
         desktop.requestLayout()
+        if (::edgeHandle.isInitialized) {
+            (edgeHandle.layoutParams as FrameLayout.LayoutParams).bottomMargin = insB
+            edgeHandle.requestLayout()
+            if (hide && !tbShown) taskbar.translationY = (tbH + insB + dp(2)).toFloat()
+            edgeHandle.visibility = if (hide && !tbShown) View.VISIBLE else View.GONE
+        }
 
         val availW = rw - insL - insR
         val baseBottom = tbH + insB + dp(12)
@@ -710,14 +852,20 @@ class MainActivity : Activity() {
     }
 
     private fun launch(app: AppEntry) {
-        val i = Intent(Intent.ACTION_MAIN)
-            .addCategory(Intent.CATEGORY_LAUNCHER)
-            .setComponent(app.cn)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
         try {
-            startActivity(i)
-        } catch (e: Exception) {
-            Toast.makeText(this, "Tidak dapat membuka ${app.label}", Toast.LENGTH_SHORT).show()
+            if (app.pkg == packageName) {
+                // Pengaturan Win / File Explorer: buka langsung di task launcher.
+                startActivity(Intent().setClassName(this, app.cn.className))
+            } else {
+                val i = Intent(Intent.ACTION_MAIN)
+                    .addCategory(Intent.CATEGORY_LAUNCHER)
+                    .setComponent(app.cn)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+                startActivity(i)
+            }
+        } catch (e: Throwable) {
+            val why = (e.javaClass.simpleName + " " + (e.message ?: "")).take(140)
+            Toast.makeText(this, "Tidak dapat membuka ${app.label}: $why", Toast.LENGTH_LONG).show()
         }
         recents.remove(app.key)
         recents.add(0, app.key)
@@ -1208,6 +1356,7 @@ class MainActivity : Activity() {
         scrim.visibility = if (id == P_NONE) View.GONE else View.VISIBLE
         panelView(id)?.let { showPanel(it) }
         startPill.visibility = if (id == P_START) View.VISIBLE else View.INVISIBLE
+        onPanelChanged(id)
     }
 
     private fun prepareStart() {
