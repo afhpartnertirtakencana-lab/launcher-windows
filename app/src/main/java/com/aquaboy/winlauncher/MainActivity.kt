@@ -680,7 +680,7 @@ class MainActivity : Activity() {
 
     private fun resetPins() {
         val own = apps.filter { it.pkg == packageName }
-            .sortedBy { if (it.cn.className.endsWith("FileManagerActivity")) 0 else 1 }
+            .sortedBy { if (it.cn.className.endsWith("FilesActivity")) 0 else 1 }
         val defApps = defaultPackages()
             .mapNotNull { p -> apps.firstOrNull { it.pkg == p } }
             .distinctBy { it.key }

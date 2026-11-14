@@ -509,7 +509,7 @@ class SettingsActivity : Activity() {
         })
         rows.add(SHeader("Kelola"))
         rows.add(SLink(GlyphView.Kind.FOLDER, "Buka File Manager", "Telusuri file dan folder") {
-            startActivity(Intent(this, FileManagerActivity::class.java))
+            startActivity(Intent(this, FilesActivity::class.java))
         })
         rows.add(sys(GlyphView.Kind.DRIVE, "Penyimpanan Android", "Rincian per kategori dan bersihkan ruang", "android.settings.INTERNAL_STORAGE_SETTINGS"))
         return rows
