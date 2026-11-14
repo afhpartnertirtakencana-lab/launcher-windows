@@ -82,6 +82,7 @@
         <activity
             android:name=".SettingsActivity"
             android:exported="true"
+            android:taskAffinity="com.aquaboy.winlauncher.settings"
             android:icon="@drawable/ic_settings"
             android:label="@string/settings_label"
             android:theme="@style/AppDark"
@@ -95,6 +96,7 @@
         <activity
             android:name=".FilesActivity"
             android:exported="true"
+            android:taskAffinity="com.aquaboy.winlauncher.files"
             android:icon="@drawable/ic_files"
             android:label="@string/files_label"
             android:theme="@style/AppDark"
