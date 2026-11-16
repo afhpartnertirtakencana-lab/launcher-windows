@@ -234,6 +234,7 @@ class MainActivity : Activity() {
         }
         purgeClosedWindows()
         updateClock()
+        if (::desktop.isInitialized) desktop.post { healDesktop() }
         applyImmersive()
         Crash.take(this)?.let { showCrashReport(it) }
     }
@@ -241,6 +242,7 @@ class MainActivity : Activity() {
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
         closePanels()
+        if (::desktop.isInitialized) desktop.post { healDesktop() }
     }
 
     override fun onBackPressed() {
@@ -293,6 +295,7 @@ class MainActivity : Activity() {
     }
 
     private fun onPanelChanged(id: Int) {
+        if (id == P_NONE && ::desktop.isInitialized) desktop.postDelayed({ healDesktop() }, 250)
         if (!::edgeHandle.isInitialized) return
         if (id != P_NONE) {
             handler.removeCallbacks(hideTaskbarRunnable)
@@ -352,7 +355,10 @@ class MainActivity : Activity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) applyImmersive()
+        if (hasFocus) {
+            applyImmersive()
+            if (::desktop.isInitialized) desktop.postDelayed({ healDesktop() }, 300)
+        }
     }
 
     // ---------- window ----------
@@ -456,8 +462,8 @@ class MainActivity : Activity() {
             showDesktopMenu()
             true
         }
-        desktop.addOnLayoutChangeListener { _, _, t, _, b, _, oldT, _, oldB ->
-            if (b - t != oldB - oldT) renderDesktop()
+        desktop.addOnLayoutChangeListener { _, l, t, r, b, oldL, oldT, oldR, oldB ->
+            if (b - t != oldB - oldT || r - l != oldR - oldL) renderDesktop()
         }
     }
 
@@ -974,6 +980,24 @@ class MainActivity : Activity() {
 
     // ---------- desktop ----------
     internal fun renderDesktopNow() = renderDesktop()
+
+    private var lastHeal = 0L
+
+    /**
+     * Penjaga: bila ikon atau widget desktop hilang tanpa digambar ulang (terjadi di sebagian
+     * tablet setelah panel, dialog, atau jendela lain), gambar ulang otomatis.
+     */
+    private fun healDesktop() {
+        if (!::desktop.isInitialized || desktop.height <= 0) return
+        val now = System.currentTimeMillis()
+        if (now - lastHeal < 3000L) return
+        val lost = widgetLayer == null || widgetLayer?.missing() == true ||
+            (desktop.childCount == 0 && desktopPins.isNotEmpty() && pb("desk_show", true))
+        if (lost) {
+            lastHeal = now
+            renderDesktop()
+        }
+    }
 
     private fun renderDesktop() {
         if (!::desktop.isInitialized) return
@@ -1605,6 +1629,7 @@ class MainActivity : Activity() {
         calTime.text = time
         calDate.text = SimpleDateFormat("EEEE, d MMMM yyyy", Locale.getDefault()).format(now)
         widgetLayer?.tick()
+        healDesktop()
     }
 
     private fun updateBattery(i: Intent) {

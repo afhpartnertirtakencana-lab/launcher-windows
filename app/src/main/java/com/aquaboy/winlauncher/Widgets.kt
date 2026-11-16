@@ -137,6 +137,7 @@ internal class WidgetLayer(
 ) {
     private val items = WStore.load(prefs)
     private val updaters = ArrayList<() -> Unit>()
+    private val TAG = "deskwidget"
 
     fun enabled(): Boolean = prefs.getBoolean("widgets_show", true)
 
@@ -156,6 +157,7 @@ internal class WidgetLayer(
     private fun renderOne(it: WItem) {
         run {
             val (view, update) = build(it)
+            view.tag = TAG
             val r = rectOf(it)
             val lp = FrameLayout.LayoutParams(r.width(), r.height())
             lp.leftMargin = r.left
@@ -178,6 +180,13 @@ internal class WidgetLayer(
 
     /** Area yang dipakai widget, supaya ikon desktop mengalir mengitarinya. */
     fun rects(): List<android.graphics.Rect> = if (enabled()) items.map { rectOf(it) } else emptyList()
+
+    /** Ada widget yang seharusnya tampil tetapi tidak ada di desktop. */
+    fun missing(): Boolean {
+        if (!enabled() || items.isEmpty()) return false
+        for (i in 0 until desktop.childCount) if (desktop.getChildAt(i).tag == TAG) return false
+        return true
+    }
 
     fun tick() {
         for (u in updaters) u()
