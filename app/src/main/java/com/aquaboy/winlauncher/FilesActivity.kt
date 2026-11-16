@@ -404,11 +404,6 @@ class FilesActivity : Activity() {
         if (!Wins.isFloating(this)) applyBarIcons()
     }
 
-    override fun dispatchTouchEvent(ev: android.view.MotionEvent?): Boolean {
-        raiseOnTouch(ev)
-        return super.dispatchTouchEvent(ev)
-    }
-
     private fun buildNavPane() {
         navPane = ll(true).apply {
             if (tabletUi) {

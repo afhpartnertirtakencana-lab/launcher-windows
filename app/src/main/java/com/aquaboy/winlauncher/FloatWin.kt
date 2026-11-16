@@ -17,7 +17,7 @@ object FloatWin {
     private fun prefs(ctx: Context) = ctx.getSharedPreferences(Th.PREFS, Context.MODE_PRIVATE)
 
     /** Pengaturan dan File Explorer tampil sebagai jendela melayang buatan launcher. */
-    fun ownFloat(ctx: Context): Boolean = prefs(ctx).getBoolean("own_float", true)
+    fun ownFloat(ctx: Context): Boolean = prefs(ctx).getBoolean("own_float", false)
 
     fun enabled(ctx: Context): Boolean = prefs(ctx).getBoolean("float_windows", false)
 

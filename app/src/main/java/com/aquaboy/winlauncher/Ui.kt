@@ -496,7 +496,11 @@ fun Activity.attachWindowBar(rootFrame: android.widget.FrameLayout, title: Strin
         bar.addView(btn(BoxView(this)) { floatToggleMax() }, LinearLayout.LayoutParams(dp(46), MATCH))
     }
     bar.addView(btn(icon(GlyphView.Kind.CLOSE, Th.p.text)) {
-        finishAndRemoveTask()
+        try {
+            finishAndRemoveTask()
+        } catch (e: Throwable) {
+            finish()
+        }
     }, LinearLayout.LayoutParams(dp(46), MATCH))
 
     val col = ll(true)

@@ -52,21 +52,11 @@ internal object Wins {
     }
 }
 
-private const val NO_INPUT = WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-
 internal fun Activity.bringTaskToFront() {
     try {
         (getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager).moveTaskToFront(taskId, 0)
     } catch (e: Throwable) {
         // tanpa izin atau ditolak sistem: jendela tetap di urutan semula
-    }
-}
-
-/** Ketuk jendela yang ada di belakang: naikkan ke depan. */
-internal fun Activity.raiseOnTouch(ev: MotionEvent?) {
-    if (ev != null && ev.actionMasked == MotionEvent.ACTION_DOWN && Wins.isFloating(this) && !hasWindowFocus()) {
-        val st = Wins.state(this)
-        if (st != null && !st.minimized) bringTaskToFront()
     }
 }
 
@@ -99,18 +89,29 @@ internal fun Activity.setupFloatingWindow(key: String) {
 private const val MIN_W = 380
 private const val MIN_H = 300
 
+/**
+ * Minimalkan: launcher dibawa ke depan (aktif dan bisa disentuh), jendela ini tetap hidup
+ * di belakangnya dan bisa dimunculkan lagi dari taskbar.
+ */
 internal fun Activity.floatMinimize() {
     val st = Wins.state(this) ?: return
     st.minimized = true
-    window.addFlags(NO_INPUT)
-    window.decorView.visibility = View.INVISIBLE
+    try {
+        startActivity(
+            android.content.Intent(this, MainActivity::class.java).addFlags(
+                android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
+                    android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                    android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP
+            )
+        )
+    } catch (e: Throwable) {
+        st.minimized = false
+    }
 }
 
 internal fun Activity.floatRestore() {
     val st = Wins.state(this) ?: return
     st.minimized = false
-    window.decorView.visibility = View.VISIBLE
-    window.clearFlags(NO_INPUT)
     bringTaskToFront()
 }
 

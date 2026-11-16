@@ -295,7 +295,7 @@ class SettingsActivity : Activity() {
             val ok = FloatWin.supported(this)
             listOf(
                 SHeader("Jendela launcher"),
-                SToggle(GlyphView.Kind.CAST, "Jendela mengambang untuk Pengaturan dan File Explorer", "Bisa digeser lewat bilah judul, diubah ukurannya dari tepi atau sudut, dan dibuka lebih dari satu. Tidak butuh mode freeform sistem. Berlaku untuk jendela yang dibuka berikutnya.", "own_float", true),
+                SToggle(GlyphView.Kind.CAST, "Jendela mengambang untuk Pengaturan dan File Explorer", "Eksperimen. Bisa digeser lewat bilah judul, diubah ukurannya dari tepi atau sudut, dan dibuka lebih dari satu. Tidak butuh mode freeform sistem. Berlaku untuk jendela yang dibuka berikutnya.", "own_float", false),
                 SHeader("Aplikasi lain (perlu freeform sistem)"),
                 SCustom {
                     hero(
@@ -1112,11 +1112,6 @@ class SettingsActivity : Activity() {
         attachWindowBar(rootFrame, "Pengaturan", GlyphView.Kind.GEAR)
         setContentView(rootFrame)
         if (!Wins.isFloating(this)) applyBarIcons()
-    }
-
-    override fun dispatchTouchEvent(ev: android.view.MotionEvent?): Boolean {
-        raiseOnTouch(ev)
-        return super.dispatchTouchEvent(ev)
     }
 
     private fun navItem(id: String): View {
