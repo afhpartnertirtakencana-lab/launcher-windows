@@ -384,8 +384,9 @@ fun Context.openOwnWindow(cls: Class<*>, extras: (android.content.Intent.() -> U
     val i = android.content.Intent(this, cls).addFlags(
         android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
     )
+    if (FloatWin.enabled(this)) i.addFlags(android.content.Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
     extras?.invoke(i)
-    startActivity(i)
+    startActivity(i, FloatWin.options(this))
 }
 
 /** Garis kecil untuk tombol minimize. */

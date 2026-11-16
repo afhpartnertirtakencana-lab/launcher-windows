@@ -853,16 +853,16 @@ class MainActivity : Activity() {
         try {
             if (app.pkg == packageName) {
                 // Pengaturan Win / File Explorer: buka langsung di task launcher.
-                startActivity(
-                    Intent().setClassName(this, app.cn.className)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
-                )
+                val oi = Intent().setClassName(this, app.cn.className)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+                if (FloatWin.enabled(this)) oi.addFlags(Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
+                startActivity(oi, FloatWin.options(this))
             } else {
                 val i = Intent(Intent.ACTION_MAIN)
                     .addCategory(Intent.CATEGORY_LAUNCHER)
                     .setComponent(app.cn)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
-                startActivity(i)
+                startActivity(i, FloatWin.options(this))
             }
         } catch (e: Throwable) {
             val why = (e.javaClass.simpleName + " " + (e.message ?: "")).take(140)

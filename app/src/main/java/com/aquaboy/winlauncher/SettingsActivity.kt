@@ -280,8 +280,42 @@ class SettingsActivity : Activity() {
                 SHeader("Tata letak"),
                 SLink(GlyphView.Kind.TASKBAR, "Taskbar", "Perataan, ukuran ikon, tombol cari") { goTo("taskbar") },
                 SLink(GlyphView.Kind.START, "Start", "Kolom, rekomendasi, aplikasi tersemat") { goTo("start") },
-                SLink(GlyphView.Kind.HOME, "Desktop", "Ikon pintasan di layar utama") { goTo("desktop") }
+                SLink(GlyphView.Kind.HOME, "Desktop", "Ikon pintasan di layar utama") { goTo("desktop") },
+                SLink(GlyphView.Kind.CAST, "Jendela mengambang", "Buka aplikasi sebagai jendela yang bisa digeser dan diubah ukurannya") { goTo("floatwin") }
             ) + backupRows()
+        }
+
+        page("floatwin", "Jendela mengambang", GlyphView.Kind.CAST, "personalize") {
+            val ok = FloatWin.supported(this)
+            listOf(
+                SCustom {
+                    hero(
+                        GlyphView.Kind.CAST,
+                        if (ok) "Mode freeform aktif di perangkat ini" else "Mode freeform belum aktif",
+                        if (ok) "Aplikasi dapat dibuka sebagai jendela bebas." else "Aktifkan dulu di Opsi pengembang agar jendela bisa digeser dan diubah ukurannya.",
+                        null
+                    )
+                },
+                SToggle(GlyphView.Kind.CAST, "Buka aplikasi sebagai jendela mengambang", "Berlaku untuk semua aplikasi yang dibuka dari launcher; Pengaturan dan File Explorer bisa dibuka lebih dari satu", "float_windows", false),
+                SSegment(GlyphView.Kind.APPS, "Ukuran awal jendela", "Setelah terbuka, ukuran bebas diubah dengan menarik tepi atau sudut jendela", listOf("Kecil", "Sedang", "Besar"), "float_size", 1),
+                SHeader("Aktifkan di perangkat"),
+                SLink(GlyphView.Kind.INFO, "Cara mengaktifkan", "Langkah singkat di Opsi pengembang") {
+                    messageDialog(
+                        "Mengaktifkan jendela freeform",
+                        "1. Pengaturan Android → Tentang perangkat → ketuk Nomor build 7 kali.\n" +
+                            "2. Buka Opsi pengembang → aktifkan \"Aktifkan jendela freeform\" dan \"Paksa aktivitas dapat diubah ukurannya\".\n" +
+                            "3. Mulai ulang perangkat.\n" +
+                            "4. Kembali ke sini dan nyalakan \"Buka aplikasi sebagai jendela mengambang\".\n\n" +
+                            "Lewat komputer (ADB):\n" +
+                            "adb shell settings put global enable_freeform_support 1\n" +
+                            "adb shell settings put global force_resizable_activities 1\n\n" +
+                            "Pada Android 15/16 di tablet, mode desktop di Opsi pengembang juga bisa dipakai. Jika tidak ada opsi ini, perangkat belum mendukungnya."
+                    )
+                },
+                SLink(GlyphView.Kind.GEAR, "Buka Opsi pengembang", null) {
+                    startIntent(Intent(android.provider.Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS))
+                }
+            )
         }
 
         page("taskbar", "Taskbar", GlyphView.Kind.TASKBAR, "personalize") {
