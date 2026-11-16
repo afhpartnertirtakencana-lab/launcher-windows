@@ -298,6 +298,8 @@ class SettingsActivity : Activity() {
                 },
                 SToggle(GlyphView.Kind.CAST, "Buka aplikasi sebagai jendela mengambang", "Berlaku untuk semua aplikasi yang dibuka dari launcher; Pengaturan dan File Explorer bisa dibuka lebih dari satu", "float_windows", false),
                 SSegment(GlyphView.Kind.APPS, "Ukuran awal jendela", "Setelah terbuka, ukuran bebas diubah dengan menarik tepi atau sudut jendela", listOf("Kecil", "Sedang", "Besar"), "float_size", 1),
+                SInfo("Freeform aktif di sistem", if (ok) "Ya" else "Belum"),
+                SInfo("Permintaan mode jendela", if (FloatWin.windowingModeAvailable()) "Tersedia" else "Diblokir sistem"),
                 SHeader("Aktifkan di perangkat"),
                 SLink(GlyphView.Kind.INFO, "Cara mengaktifkan", "Langkah singkat di Opsi pengembang") {
                     messageDialog(

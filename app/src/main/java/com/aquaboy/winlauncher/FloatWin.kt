@@ -28,6 +28,29 @@ object FloatWin {
         }
     }
 
+    private const val WINDOWING_MODE_FREEFORM = 5
+
+    /**
+     * Android 13 hanya menjadikan jendela freeform bila mode jendelanya diminta eksplisit.
+     * Metode ini tersembunyi di API; sistem boleh menolaknya, jadi dicoba dengan aman.
+     */
+    private fun setFreeformMode(ao: ActivityOptions): Boolean = try {
+        ActivityOptions::class.java
+            .getMethod("setLaunchWindowingMode", Int::class.javaPrimitiveType)
+            .invoke(ao, WINDOWING_MODE_FREEFORM)
+        true
+    } catch (e: Throwable) {
+        false
+    }
+
+    /** Apakah sistem mengizinkan aplikasi ini meminta mode freeform. */
+    fun windowingModeAvailable(): Boolean = try {
+        ActivityOptions::class.java.getMethod("setLaunchWindowingMode", Int::class.javaPrimitiveType)
+        true
+    } catch (e: Throwable) {
+        false
+    }
+
     /** Opsi peluncuran dengan batas jendela bertingkat, atau null bila mode ini dimatikan. */
     fun options(ctx: Context): Bundle? {
         if (!enabled(ctx)) return null
@@ -44,7 +67,9 @@ object FloatWin {
             val n = cascade++ % 8
             val l = ((dm.widthPixels - w) / 2 + (n - 3) * step).coerceIn(0, dm.widthPixels - w)
             val t = ((dm.heightPixels - h) / 2 + (n - 3) * step).coerceIn(0, dm.heightPixels - h)
-            ActivityOptions.makeBasic().setLaunchBounds(Rect(l, t, l + w, t + h)).toBundle()
+            val ao = ActivityOptions.makeBasic().setLaunchBounds(Rect(l, t, l + w, t + h))
+            setFreeformMode(ao)
+            ao.toBundle()
         } catch (e: Throwable) {
             null
         }
