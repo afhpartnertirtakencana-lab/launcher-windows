@@ -849,14 +849,23 @@ class MainActivity : Activity() {
         bmp
     }
 
+    /** Pengaturan Win / File Explorer: buka sebagai jendela baru. */
+    private fun startOwn(app: AppEntry) {
+        val oi = Intent().setClassName(this, app.cn.className)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+        val own = FloatWin.ownFloat(this)
+        if (own || FloatWin.enabled(this)) oi.addFlags(Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
+        startActivity(oi, if (own) null else FloatWin.options(this))
+    }
+
     private fun launch(app: AppEntry) {
+        val existing = if (app.pkg == packageName && FloatWin.ownFloat(this)) Wins.find(app.cn.className) else null
         try {
-            if (app.pkg == packageName) {
-                // Pengaturan Win / File Explorer: buka langsung di task launcher.
-                val oi = Intent().setClassName(this, app.cn.className)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
-                if (FloatWin.enabled(this)) oi.addFlags(Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
-                startActivity(oi, FloatWin.options(this))
+            if (existing != null) {
+                // Jendela sudah terbuka (mungkin diminimalkan): munculkan, jangan buat baru.
+                Wins.raise(existing)
+            } else if (app.pkg == packageName) {
+                startOwn(app)
             } else {
                 val i = Intent(Intent.ACTION_MAIN)
                     .addCategory(Intent.CATEGORY_LAUNCHER)
@@ -1258,6 +1267,7 @@ class MainActivity : Activity() {
         m.add(0, 2, 0, if (app.key in taskbarPins) "Lepas dari taskbar" else "Sematkan ke taskbar")
         m.add(0, 3, 0, if (app.key in desktopPins) "Hapus dari desktop" else "Tambahkan ke desktop")
         if (app.key in recents && app.pkg != packageName) m.add(0, 6, 0, "Hapus dari daftar terbuka")
+        if (app.pkg == packageName && FloatWin.ownFloat(this)) m.add(0, 7, 0, "Buka jendela baru")
         if (app.pkg != packageName) {
             m.add(0, 4, 0, "Info aplikasi")
             m.add(0, 5, 0, "Copot pemasangan")
@@ -1268,6 +1278,14 @@ class MainActivity : Activity() {
                     1 -> togglePin(startPins, app.key, "start")
                     2 -> togglePin(taskbarPins, app.key, "taskbar")
                     3 -> togglePin(desktopPins, app.key, "desktop")
+                    7 -> {
+                        closePanels()
+                        try {
+                            startOwn(app)
+                        } catch (e: Throwable) {
+                            Toast.makeText(this, "Tidak dapat membuka jendela baru", Toast.LENGTH_SHORT).show()
+                        }
+                    }
                     6 -> {
                         recents.remove(app.key)
                         save("recents", recents)

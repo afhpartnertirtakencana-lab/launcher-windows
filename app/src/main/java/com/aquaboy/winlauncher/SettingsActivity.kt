@@ -116,8 +116,13 @@ class SettingsActivity : Activity() {
     // ---------- lifecycle ----------
     override fun onCreate(savedInstanceState: Bundle?) {
         Th.load(this)
-        setTheme(if (Th.dark) R.style.AppDark else R.style.AppLight)
+        val floating = FloatWin.ownFloat(this)
+        setTheme(
+            if (floating) (if (Th.dark) R.style.AppFloatDark else R.style.AppFloatLight)
+            else (if (Th.dark) R.style.AppDark else R.style.AppLight)
+        )
         super.onCreate(savedInstanceState)
+        if (floating) setupFloatingWindow("settings")
         Running.opened(ComponentName(this, SettingsActivity::class.java).flattenToString())
         prefs = getSharedPreferences(Th.PREFS, MODE_PRIVATE)
         pm = packageManager
@@ -202,6 +207,7 @@ class SettingsActivity : Activity() {
     private fun bump() = Th.bump(this)
 
     override fun onDestroy() {
+        Wins.unregister(this)
         Running.closed(ComponentName(this, SettingsActivity::class.java).flattenToString())
         super.onDestroy()
     }
@@ -288,6 +294,9 @@ class SettingsActivity : Activity() {
         page("floatwin", "Jendela mengambang", GlyphView.Kind.CAST, "personalize") {
             val ok = FloatWin.supported(this)
             listOf(
+                SHeader("Jendela launcher"),
+                SToggle(GlyphView.Kind.CAST, "Jendela mengambang untuk Pengaturan dan File Explorer", "Bisa digeser lewat bilah judul, diubah ukurannya dari tepi atau sudut, dan dibuka lebih dari satu. Tidak butuh mode freeform sistem. Berlaku untuk jendela yang dibuka berikutnya.", "own_float", true),
+                SHeader("Aplikasi lain (perlu freeform sistem)"),
                 SCustom {
                     hero(
                         GlyphView.Kind.CAST,
@@ -1007,7 +1016,7 @@ class SettingsActivity : Activity() {
     // ---------- konstruksi UI ----------
     private fun buildUi() {
         val rootFrame = FrameLayout(this).apply { setBackgroundColor(Th.p.bg) }
-        edgeToEdge(rootFrame)
+        if (!Wins.isFloating(this)) edgeToEdge(rootFrame)
 
         searchInput = EditText(this).apply {
             hint = "Cari pengaturan"
@@ -1102,7 +1111,12 @@ class SettingsActivity : Activity() {
 
         attachWindowBar(rootFrame, "Pengaturan", GlyphView.Kind.GEAR)
         setContentView(rootFrame)
-        applyBarIcons()
+        if (!Wins.isFloating(this)) applyBarIcons()
+    }
+
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent?): Boolean {
+        raiseOnTouch(ev)
+        return super.dispatchTouchEvent(ev)
     }
 
     private fun navItem(id: String): View {

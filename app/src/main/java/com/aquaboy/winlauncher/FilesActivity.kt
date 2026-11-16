@@ -263,8 +263,13 @@ class FilesActivity : Activity() {
     // ---------- lifecycle ----------
     override fun onCreate(savedInstanceState: Bundle?) {
         Th.load(this)
-        setTheme(if (Th.dark) R.style.AppDark else R.style.AppLight)
+        val floating = FloatWin.ownFloat(this)
+        setTheme(
+            if (floating) (if (Th.dark) R.style.AppFloatDark else R.style.AppFloatLight)
+            else (if (Th.dark) R.style.AppDark else R.style.AppLight)
+        )
         super.onCreate(savedInstanceState)
+        if (floating) setupFloatingWindow("files")
         Running.opened(ComponentName(this, FilesActivity::class.java).flattenToString())
         prefs = getSharedPreferences(Th.PREFS, MODE_PRIVATE)
         seenRev = prefs.getInt("rev", 0)
@@ -312,6 +317,7 @@ class FilesActivity : Activity() {
     }
 
     override fun onDestroy() {
+        Wins.unregister(this)
         Running.closed(ComponentName(this, FilesActivity::class.java).flattenToString())
         super.onDestroy()
         searchGen.incrementAndGet()
@@ -371,7 +377,7 @@ class FilesActivity : Activity() {
     // ---------- konstruksi UI ----------
     private fun buildUi() {
         rootFrame = FrameLayout(this).apply { setBackgroundColor(Th.p.bg) }
-        edgeToEdge(rootFrame)
+        if (!Wins.isFloating(this)) edgeToEdge(rootFrame)
 
         buildNavPane()
         val main = buildMain()
@@ -395,7 +401,12 @@ class FilesActivity : Activity() {
         }
         attachWindowBar(rootFrame, "File Explorer", GlyphView.Kind.FOLDER)
         setContentView(rootFrame)
-        applyBarIcons()
+        if (!Wins.isFloating(this)) applyBarIcons()
+    }
+
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent?): Boolean {
+        raiseOnTouch(ev)
+        return super.dispatchTouchEvent(ev)
     }
 
     private fun buildNavPane() {
