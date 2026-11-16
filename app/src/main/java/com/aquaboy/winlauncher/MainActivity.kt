@@ -234,7 +234,6 @@ class MainActivity : Activity() {
         }
         purgeClosedWindows()
         updateClock()
-        if (::desktop.isInitialized) desktop.post { healDesktop() }
         applyImmersive()
         Crash.take(this)?.let { showCrashReport(it) }
     }
@@ -242,7 +241,6 @@ class MainActivity : Activity() {
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
         closePanels()
-        if (::desktop.isInitialized) desktop.post { healDesktop() }
     }
 
     override fun onBackPressed() {
@@ -295,7 +293,6 @@ class MainActivity : Activity() {
     }
 
     private fun onPanelChanged(id: Int) {
-        if (id == P_NONE && ::desktop.isInitialized) desktop.postDelayed({ healDesktop() }, 250)
         if (!::edgeHandle.isInitialized) return
         if (id != P_NONE) {
             handler.removeCallbacks(hideTaskbarRunnable)
@@ -355,10 +352,7 @@ class MainActivity : Activity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) {
-            applyImmersive()
-            if (::desktop.isInitialized) desktop.postDelayed({ healDesktop() }, 300)
-        }
+        if (hasFocus) applyImmersive()
     }
 
     // ---------- window ----------
@@ -462,8 +456,8 @@ class MainActivity : Activity() {
             showDesktopMenu()
             true
         }
-        desktop.addOnLayoutChangeListener { _, l, t, r, b, oldL, oldT, oldR, oldB ->
-            if (b - t != oldB - oldT || r - l != oldR - oldL) renderDesktop()
+        desktop.addOnLayoutChangeListener { _, _, t, _, b, _, oldT, _, oldB ->
+            if (b - t != oldB - oldT) renderDesktop()
         }
     }
 
@@ -855,29 +849,20 @@ class MainActivity : Activity() {
         bmp
     }
 
-    /** Pengaturan Win / File Explorer: buka sebagai jendela baru. */
-    private fun startOwn(app: AppEntry) {
-        val oi = Intent().setClassName(this, app.cn.className)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
-        val own = FloatWin.ownFloat(this)
-        if (own || FloatWin.enabled(this)) oi.addFlags(Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
-        startActivity(oi, if (own) null else FloatWin.options(this))
-    }
-
     private fun launch(app: AppEntry) {
-        val existing = if (app.pkg == packageName && FloatWin.ownFloat(this)) Wins.find(app.cn.className) else null
         try {
-            if (existing != null) {
-                // Jendela sudah terbuka (mungkin diminimalkan): munculkan, jangan buat baru.
-                Wins.raise(existing)
-            } else if (app.pkg == packageName) {
-                startOwn(app)
+            if (app.pkg == packageName) {
+                // Pengaturan Win / File Explorer: buka langsung di task launcher.
+                startActivity(
+                    Intent().setClassName(this, app.cn.className)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+                )
             } else {
                 val i = Intent(Intent.ACTION_MAIN)
                     .addCategory(Intent.CATEGORY_LAUNCHER)
                     .setComponent(app.cn)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
-                startActivity(i, FloatWin.options(this))
+                startActivity(i)
             }
         } catch (e: Throwable) {
             val why = (e.javaClass.simpleName + " " + (e.message ?: "")).take(140)
@@ -980,24 +965,6 @@ class MainActivity : Activity() {
 
     // ---------- desktop ----------
     internal fun renderDesktopNow() = renderDesktop()
-
-    private var lastHeal = 0L
-
-    /**
-     * Penjaga: bila ikon atau widget desktop hilang tanpa digambar ulang (terjadi di sebagian
-     * tablet setelah panel, dialog, atau jendela lain), gambar ulang otomatis.
-     */
-    private fun healDesktop() {
-        if (!::desktop.isInitialized || desktop.height <= 0) return
-        val now = System.currentTimeMillis()
-        if (now - lastHeal < 3000L) return
-        val lost = widgetLayer == null || widgetLayer?.missing() == true ||
-            (desktop.childCount == 0 && desktopPins.isNotEmpty() && pb("desk_show", true))
-        if (lost) {
-            lastHeal = now
-            renderDesktop()
-        }
-    }
 
     private fun renderDesktop() {
         if (!::desktop.isInitialized) return
@@ -1291,7 +1258,6 @@ class MainActivity : Activity() {
         m.add(0, 2, 0, if (app.key in taskbarPins) "Lepas dari taskbar" else "Sematkan ke taskbar")
         m.add(0, 3, 0, if (app.key in desktopPins) "Hapus dari desktop" else "Tambahkan ke desktop")
         if (app.key in recents && app.pkg != packageName) m.add(0, 6, 0, "Hapus dari daftar terbuka")
-        if (app.pkg == packageName && FloatWin.ownFloat(this)) m.add(0, 7, 0, "Buka jendela baru")
         if (app.pkg != packageName) {
             m.add(0, 4, 0, "Info aplikasi")
             m.add(0, 5, 0, "Copot pemasangan")
@@ -1302,14 +1268,6 @@ class MainActivity : Activity() {
                     1 -> togglePin(startPins, app.key, "start")
                     2 -> togglePin(taskbarPins, app.key, "taskbar")
                     3 -> togglePin(desktopPins, app.key, "desktop")
-                    7 -> {
-                        closePanels()
-                        try {
-                            startOwn(app)
-                        } catch (e: Throwable) {
-                            Toast.makeText(this, "Tidak dapat membuka jendela baru", Toast.LENGTH_SHORT).show()
-                        }
-                    }
                     6 -> {
                         recents.remove(app.key)
                         save("recents", recents)
@@ -1629,7 +1587,6 @@ class MainActivity : Activity() {
         calTime.text = time
         calDate.text = SimpleDateFormat("EEEE, d MMMM yyyy", Locale.getDefault()).format(now)
         widgetLayer?.tick()
-        healDesktop()
     }
 
     private fun updateBattery(i: Intent) {

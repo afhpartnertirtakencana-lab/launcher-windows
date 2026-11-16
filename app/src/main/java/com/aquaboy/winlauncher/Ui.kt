@@ -381,27 +381,11 @@ object Running {
 
 /** Buka jendela milik launcher di task sendiri, supaya bisa diminimalkan tanpa menutup launcher. */
 fun Context.openOwnWindow(cls: Class<*>, extras: (android.content.Intent.() -> Unit)? = null) {
-    val own = FloatWin.ownFloat(this)
-    if (own && extras == null) {
-        // Jendela sudah ada: munculkan saja, jangan buat baru.
-        val ex = Wins.find(cls.name)
-        if (ex != null) {
-            Wins.raise(ex)
-            return
-        }
-    }
-    startOwnWindow(cls, extras)
-}
-
-/** Selalu membuat jendela baru. */
-fun Context.startOwnWindow(cls: Class<*>, extras: (android.content.Intent.() -> Unit)? = null) {
-    val own = FloatWin.ownFloat(this)
     val i = android.content.Intent(this, cls).addFlags(
         android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
     )
-    if (own || FloatWin.enabled(this)) i.addFlags(android.content.Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
     extras?.invoke(i)
-    startActivity(i, if (own) null else FloatWin.options(this))
+    startActivity(i)
 }
 
 /** Garis kecil untuk tombol minimize. */
@@ -419,45 +403,11 @@ private class DashView(ctx: Context) : View(ctx) {
     }
 }
 
-/** Kotak untuk tombol maksimalkan. */
-private class BoxView(ctx: Context) : View(ctx) {
-    private val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-        style = android.graphics.Paint.Style.STROKE
-        strokeWidth = ctx.dpf(1.3f)
-        color = Th.p.text
-    }
-
-    override fun onDraw(c: android.graphics.Canvas) {
-        val half = context.dpf(4.5f)
-        c.drawRect(width / 2f - half, height / 2f - half, width / 2f + half, height / 2f + half, p)
-    }
-}
-
-/** Gagang pojok kanan bawah untuk mengubah ukuran jendela. */
-private class GripView(ctx: Context) : View(ctx) {
-    private val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-        strokeWidth = ctx.dpf(1.2f)
-        color = Th.p.dim
-    }
-
-    override fun onDraw(c: android.graphics.Canvas) {
-        val w = width.toFloat()
-        val h = height.toFloat()
-        val d = context.dpf(4f)
-        for (k in 1..3) {
-            c.drawLine(w - d * k * 1.4f, h - context.dpf(3f), w - context.dpf(3f), h - d * k * 1.4f, p)
-        }
-    }
-}
-
 /**
  * Tambahkan bilah judul tipis dengan tombol minimize dan tutup di kanan atas,
  * seperti jendela Windows. Seluruh isi [rootFrame] dipindah ke bawah bilah ini.
- * Pada mode jendela mengambang, bilah bisa diseret, dan tersedia tombol maksimalkan
- * serta tepi dan sudut untuk mengubah ukuran.
  */
 fun Activity.attachWindowBar(rootFrame: android.widget.FrameLayout, title: String, kind: GlyphView.Kind) {
-    val floating = Wins.isFloating(this)
     val kids = ArrayList<View>()
     for (i in 0 until rootFrame.childCount) kids.add(rootFrame.getChildAt(i))
     rootFrame.removeAllViews()
@@ -471,62 +421,29 @@ fun Activity.attachWindowBar(rootFrame: android.widget.FrameLayout, title: Strin
     bar.addView(icon(kind, Th.accent), LinearLayout.LayoutParams(dp(16), dp(16)).apply { rightMargin = dp(8) })
     bar.addView(tv(title, 12f, Th.p.dim), LinearLayout.LayoutParams(0, WRAP, 1f))
 
-    fun btn(glyph: View, onClick: () -> Unit): View =
+    fun btn(content: View, hover: Int, onClick: () -> Unit): View =
         android.widget.FrameLayout(this).apply {
             background = ripple(0f)
-            addView(glyph, android.widget.FrameLayout.LayoutParams(dp(16), dp(16), Gravity.CENTER))
+            addView(content, android.widget.FrameLayout.LayoutParams(dp(16), dp(16), Gravity.CENTER))
             setOnClickListener { onClick() }
         }
 
-    bar.addView(btn(DashView(this)) {
-        if (floating) {
-            floatMinimize()
-        } else {
-            // Minimalkan: kembali ke desktop, jendela ini tetap hidup dan muncul di taskbar.
-            startActivity(
-                android.content.Intent(this, MainActivity::class.java).addFlags(
-                    android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
-                        android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
-                        android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP
-                )
+    bar.addView(btn(DashView(this), Th.p.cardHover) {
+        // Minimalkan: kembali ke desktop, jendela ini tetap hidup dan muncul di taskbar.
+        startActivity(
+            android.content.Intent(this, MainActivity::class.java).addFlags(
+                android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
+                    android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                    android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP
             )
-        }
+        )
     }, LinearLayout.LayoutParams(dp(46), MATCH))
-    if (floating) {
-        bar.addView(btn(BoxView(this)) { floatToggleMax() }, LinearLayout.LayoutParams(dp(46), MATCH))
-    }
-    bar.addView(btn(icon(GlyphView.Kind.CLOSE, Th.p.text)) {
-        try {
-            finishAndRemoveTask()
-        } catch (e: Throwable) {
-            finish()
-        }
+    bar.addView(btn(icon(GlyphView.Kind.CLOSE, Th.p.text), 0xFFE5484D.toInt()) {
+        finishAndRemoveTask()
     }, LinearLayout.LayoutParams(dp(46), MATCH))
 
     val col = ll(true)
     col.addView(bar, LinearLayout.LayoutParams(MATCH, dp(34)))
     col.addView(content, LinearLayout.LayoutParams(MATCH, 0, 1f))
     rootFrame.addView(col, android.widget.FrameLayout.LayoutParams(MATCH, MATCH))
-
-    if (floating) {
-        rootFrame.background = rounded(Th.p.bg, dpf(10f), Th.p.stroke, dp(1))
-        rootFrame.clipToOutline = true
-        makeBarDraggable(bar)
-        val edge = dp(8)
-        val grip = dp(22)
-        val right = View(this)
-        makeResizer(right, 1)
-        rootFrame.addView(right, android.widget.FrameLayout.LayoutParams(edge, MATCH, Gravity.END).apply {
-            topMargin = dp(34)
-            bottomMargin = grip
-        })
-        val bottom = View(this)
-        makeResizer(bottom, 2)
-        rootFrame.addView(bottom, android.widget.FrameLayout.LayoutParams(MATCH, edge, Gravity.BOTTOM).apply {
-            rightMargin = grip
-        })
-        val corner = GripView(this)
-        makeResizer(corner, 3)
-        rootFrame.addView(corner, android.widget.FrameLayout.LayoutParams(grip, grip, Gravity.BOTTOM or Gravity.END))
-    }
 }

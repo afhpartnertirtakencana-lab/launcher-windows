@@ -116,13 +116,8 @@ class SettingsActivity : Activity() {
     // ---------- lifecycle ----------
     override fun onCreate(savedInstanceState: Bundle?) {
         Th.load(this)
-        val floating = FloatWin.ownFloat(this)
-        setTheme(
-            if (floating) (if (Th.dark) R.style.AppFloatDark else R.style.AppFloatLight)
-            else (if (Th.dark) R.style.AppDark else R.style.AppLight)
-        )
+        setTheme(if (Th.dark) R.style.AppDark else R.style.AppLight)
         super.onCreate(savedInstanceState)
-        if (floating) setupFloatingWindow("settings")
         Running.opened(ComponentName(this, SettingsActivity::class.java).flattenToString())
         prefs = getSharedPreferences(Th.PREFS, MODE_PRIVATE)
         pm = packageManager
@@ -207,7 +202,6 @@ class SettingsActivity : Activity() {
     private fun bump() = Th.bump(this)
 
     override fun onDestroy() {
-        Wins.unregister(this)
         Running.closed(ComponentName(this, SettingsActivity::class.java).flattenToString())
         super.onDestroy()
     }
@@ -286,47 +280,8 @@ class SettingsActivity : Activity() {
                 SHeader("Tata letak"),
                 SLink(GlyphView.Kind.TASKBAR, "Taskbar", "Perataan, ukuran ikon, tombol cari") { goTo("taskbar") },
                 SLink(GlyphView.Kind.START, "Start", "Kolom, rekomendasi, aplikasi tersemat") { goTo("start") },
-                SLink(GlyphView.Kind.HOME, "Desktop", "Ikon pintasan di layar utama") { goTo("desktop") },
-                SLink(GlyphView.Kind.CAST, "Jendela mengambang", "Buka aplikasi sebagai jendela yang bisa digeser dan diubah ukurannya") { goTo("floatwin") }
+                SLink(GlyphView.Kind.HOME, "Desktop", "Ikon pintasan di layar utama") { goTo("desktop") }
             ) + backupRows()
-        }
-
-        page("floatwin", "Jendela mengambang", GlyphView.Kind.CAST, "personalize") {
-            val ok = FloatWin.supported(this)
-            listOf(
-                SHeader("Jendela launcher"),
-                SToggle(GlyphView.Kind.CAST, "Jendela mengambang untuk Pengaturan dan File Explorer", "Eksperimen. Bisa digeser lewat bilah judul, diubah ukurannya dari tepi atau sudut, dan dibuka lebih dari satu. Tidak butuh mode freeform sistem. Berlaku untuk jendela yang dibuka berikutnya.", "own_float", false),
-                SHeader("Aplikasi lain (perlu freeform sistem)"),
-                SCustom {
-                    hero(
-                        GlyphView.Kind.CAST,
-                        if (ok) "Mode freeform aktif di perangkat ini" else "Mode freeform belum aktif",
-                        if (ok) "Aplikasi dapat dibuka sebagai jendela bebas." else "Aktifkan dulu di Opsi pengembang agar jendela bisa digeser dan diubah ukurannya.",
-                        null
-                    )
-                },
-                SToggle(GlyphView.Kind.CAST, "Buka aplikasi sebagai jendela mengambang", "Berlaku untuk semua aplikasi yang dibuka dari launcher; Pengaturan dan File Explorer bisa dibuka lebih dari satu", "float_windows", false),
-                SSegment(GlyphView.Kind.APPS, "Ukuran awal jendela", "Setelah terbuka, ukuran bebas diubah dengan menarik tepi atau sudut jendela", listOf("Kecil", "Sedang", "Besar"), "float_size", 1),
-                SInfo("Freeform aktif di sistem", if (ok) "Ya" else "Belum"),
-                SInfo("Permintaan mode jendela", if (FloatWin.windowingModeAvailable()) "Tersedia" else "Diblokir sistem"),
-                SHeader("Aktifkan di perangkat"),
-                SLink(GlyphView.Kind.INFO, "Cara mengaktifkan", "Langkah singkat di Opsi pengembang") {
-                    messageDialog(
-                        "Mengaktifkan jendela freeform",
-                        "1. Pengaturan Android → Tentang perangkat → ketuk Nomor build 7 kali.\n" +
-                            "2. Buka Opsi pengembang → aktifkan \"Aktifkan jendela freeform\" dan \"Paksa aktivitas dapat diubah ukurannya\".\n" +
-                            "3. Mulai ulang perangkat.\n" +
-                            "4. Kembali ke sini dan nyalakan \"Buka aplikasi sebagai jendela mengambang\".\n\n" +
-                            "Lewat komputer (ADB):\n" +
-                            "adb shell settings put global enable_freeform_support 1\n" +
-                            "adb shell settings put global force_resizable_activities 1\n\n" +
-                            "Pada Android 15/16 di tablet, mode desktop di Opsi pengembang juga bisa dipakai. Jika tidak ada opsi ini, perangkat belum mendukungnya."
-                    )
-                },
-                SLink(GlyphView.Kind.GEAR, "Buka Opsi pengembang", null) {
-                    startIntent(Intent(android.provider.Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS))
-                }
-            )
         }
 
         page("taskbar", "Taskbar", GlyphView.Kind.TASKBAR, "personalize") {
@@ -1016,7 +971,7 @@ class SettingsActivity : Activity() {
     // ---------- konstruksi UI ----------
     private fun buildUi() {
         val rootFrame = FrameLayout(this).apply { setBackgroundColor(Th.p.bg) }
-        if (!Wins.isFloating(this)) edgeToEdge(rootFrame)
+        edgeToEdge(rootFrame)
 
         searchInput = EditText(this).apply {
             hint = "Cari pengaturan"
@@ -1111,7 +1066,7 @@ class SettingsActivity : Activity() {
 
         attachWindowBar(rootFrame, "Pengaturan", GlyphView.Kind.GEAR)
         setContentView(rootFrame)
-        if (!Wins.isFloating(this)) applyBarIcons()
+        applyBarIcons()
     }
 
     private fun navItem(id: String): View {

@@ -2,8 +2,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <uses-permission android:name="android.permission.REORDER_TASKS" />
-    <uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES" />
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.WRITE_SETTINGS" />
@@ -87,7 +85,7 @@
             android:taskAffinity="com.aquaboy.winlauncher.settings"
             android:icon="@drawable/ic_settings"
             android:label="@string/settings_label"
-            android:theme="@style/AppTranslucent"
+            android:theme="@style/AppDark"
             android:windowSoftInputMode="adjustResize|stateHidden">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -101,7 +99,7 @@
             android:taskAffinity="com.aquaboy.winlauncher.files"
             android:icon="@drawable/ic_files"
             android:label="@string/files_label"
-            android:theme="@style/AppTranslucent"
+            android:theme="@style/AppDark"
             android:windowSoftInputMode="adjustResize|stateHidden">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

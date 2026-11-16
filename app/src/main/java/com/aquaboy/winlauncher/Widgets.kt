@@ -35,16 +35,12 @@ internal enum class WType(val label: String, val desc: String, val glyph: GlyphV
     BATTERY("Baterai", "Level dan status pengisian daya", GlyphView.Kind.BATTERY),
     STORAGE("Penyimpanan", "Pemakaian penyimpanan internal", GlyphView.Kind.DRIVE),
     MEMORY("Memori", "Pemakaian RAM", GlyphView.Kind.SYSTEM),
-    CLEANER("Pembersih RAM & cache", "Bebaskan RAM dan cache launcher dengan satu ketukan", GlyphView.Kind.DELETE),
     NOTE("Catatan", "Catatan singkat, ketuk untuk mengubah", GlyphView.Kind.DOC)
 }
 
 internal class WItem(val id: Long, val type: WType, var x: Int, var y: Int, var w: Int, var h: Int) {
     /** Kelas ukuran isi (0 kecil, 1 sedang, 2 besar) mengikuti lebar widget. */
     val size: Int get() = WStore.sizeClass(w)
-
-    /** Ukuran sangat kecil: hanya isi terpenting yang ditampilkan. */
-    val compact: Boolean get() = w < 130 || h < 84
 }
 
 internal object WStore {
@@ -74,11 +70,8 @@ internal object WStore {
         sp.edit().putString(KEY, list.joinToString(";") { "${it.id},${it.type.name},${it.size},${it.x},${it.y},${it.w},${it.h}" }).apply()
     }
 
-    const val MIN_W = 84
-    const val MIN_H = 60
-
-    /** Ukuran sangat kecil (dp). */
-    val XS: Pair<Int, Int> = 96 to 64
+    const val MIN_W = 120
+    const val MIN_H = 80
 
     fun sizeClass(w: Int): Int = when {
         w < 190 -> 0
@@ -137,7 +130,6 @@ internal class WidgetLayer(
 ) {
     private val items = WStore.load(prefs)
     private val updaters = ArrayList<() -> Unit>()
-    private val TAG = "deskwidget"
 
     fun enabled(): Boolean = prefs.getBoolean("widgets_show", true)
 
@@ -157,7 +149,6 @@ internal class WidgetLayer(
     private fun renderOne(it: WItem) {
         run {
             val (view, update) = build(it)
-            view.tag = TAG
             val r = rectOf(it)
             val lp = FrameLayout.LayoutParams(r.width(), r.height())
             lp.leftMargin = r.left
@@ -180,13 +171,6 @@ internal class WidgetLayer(
 
     /** Area yang dipakai widget, supaya ikon desktop mengalir mengitarinya. */
     fun rects(): List<android.graphics.Rect> = if (enabled()) items.map { rectOf(it) } else emptyList()
-
-    /** Ada widget yang seharusnya tampil tetapi tidak ada di desktop. */
-    fun missing(): Boolean {
-        if (!enabled() || items.isEmpty()) return false
-        for (i in 0 until desktop.childCount) if (desktop.getChildAt(i).tag == TAG) return false
-        return true
-    }
 
     fun tick() {
         for (u in updaters) u()
@@ -303,7 +287,6 @@ internal class WidgetLayer(
         val pop = PopupMenu(Th.themed(act), anchor)
         val m = pop.menu
         m.add(0, 4, 0, "Ubah ukuran…")
-        m.add(0, 5, 1, "Ukuran sangat kecil")
         m.add(0, 1, 1, "Ukuran kecil")
         m.add(0, 2, 2, "Ukuran sedang")
         m.add(0, 3, 3, "Ukuran besar")
@@ -311,12 +294,6 @@ internal class WidgetLayer(
         pop.setOnMenuItemClickListener { mi ->
             when (mi.itemId) {
                 4 -> startResize(anchor, item)
-                5 -> {
-                    item.w = WStore.XS.first
-                    item.h = WStore.XS.second
-                    WStore.save(prefs, items)
-                    relayout()
-                }
                 1, 2, 3 -> {
                     val (pw, ph) = WStore.dims(mi.itemId - 1)
                     item.w = pw
@@ -391,18 +368,10 @@ internal class WidgetLayer(
     }
 
     // ---------- isi widget ----------
-    /** Widget yang sedang dibuat berukuran sangat kecil. */
-    private var xs = false
-
     private fun card(): LinearLayout = act.ll(true, Gravity.CENTER_VERTICAL).apply {
-        background = act.rounded(Th.panel(), act.dpf(if (xs) 12f else 18f), Th.p.stroke, act.dp(1))
+        background = act.rounded(Th.panel(), act.dpf(18f), Th.p.stroke, act.dp(1))
         elevation = act.dpf(6f)
-        if (xs) {
-            gravity = Gravity.CENTER
-            setPadding(act.dp(6), act.dp(4), act.dp(6), act.dp(4))
-        } else {
-            setPadding(act.dp(14), act.dp(10), act.dp(14), act.dp(10))
-        }
+        setPadding(act.dp(14), act.dp(10), act.dp(14), act.dp(10))
     }
 
     private fun clock(fmt12: String, fmt24: String, sp: Float, color: Int, bold: Boolean): TextClock =
@@ -415,27 +384,17 @@ internal class WidgetLayer(
             maxLines = 1
         }
 
-    private fun build(it: WItem): Pair<View, () -> Unit> {
-        xs = it.compact
-        return buildFor(it)
-    }
-
-    private fun buildFor(it: WItem): Pair<View, () -> Unit> = when (it.type) {
+    private fun build(it: WItem): Pair<View, () -> Unit> = when (it.type) {
         WType.CLOCK -> buildClock(it.size)
         WType.CALENDAR -> buildCalendar(it.size)
         WType.BATTERY -> buildBattery(it.size)
         WType.STORAGE -> buildStorage(it.size)
         WType.MEMORY -> buildMemory(it.size)
-        WType.CLEANER -> buildCleaner(it.size)
         WType.NOTE -> buildNote(it)
     }
 
     private fun buildClock(size: Int): Pair<View, () -> Unit> {
         val c = card()
-        if (xs) {
-            c.addView(clock("h:mm", "HH:mm", 22f, Th.p.text, true))
-            return c to {}
-        }
         c.gravity = Gravity.CENTER_VERTICAL
         c.addView(clock("h:mm", "HH:mm", floatArrayOf(34f, 46f, 62f)[size], Th.p.text, true))
         c.addView(clock("EEEE, d MMMM", "EEEE, d MMMM", floatArrayOf(12f, 14f, 17f)[size], Th.accent, false))
@@ -445,11 +404,6 @@ internal class WidgetLayer(
 
     private fun buildCalendar(size: Int): Pair<View, () -> Unit> {
         val c = card()
-        if (xs) {
-            c.addView(clock("d", "d", 28f, Th.p.text, true))
-            c.addView(clock("MMM", "MMM", 10f, Th.accent, true))
-            return c to {}
-        }
         c.addView(clock("EEEE", "EEEE", floatArrayOf(12f, 14f, 17f)[size], Th.accent, true))
         c.addView(clock("d", "d", floatArrayOf(36f, 54f, 80f)[size], Th.p.text, true))
         c.addView(clock("MMMM yyyy", "MMMM yyyy", floatArrayOf(11f, 13f, 16f)[size], Th.p.dim, false))
@@ -458,18 +412,13 @@ internal class WidgetLayer(
 
     private fun ringCard(title: String, size: Int): Triple<LinearLayout, RingView, Pair<TextView, TextView>> {
         val c = act.ll(false, Gravity.CENTER_VERTICAL).apply {
-            background = act.rounded(Th.panel(), act.dpf(if (xs) 12f else 18f), Th.p.stroke, act.dp(1))
+            background = act.rounded(Th.panel(), act.dpf(18f), Th.p.stroke, act.dp(1))
             elevation = act.dpf(6f)
-            if (xs) {
-                gravity = Gravity.CENTER
-                setPadding(act.dp(4), act.dp(4), act.dp(4), act.dp(4))
-            } else {
-                setPadding(act.dp(14), act.dp(10), act.dp(14), act.dp(10))
-            }
+            setPadding(act.dp(14), act.dp(10), act.dp(14), act.dp(10))
         }
         val ring = RingView(act)
-        val rs = if (xs) 48 else intArrayOf(56, 76, 112)[size]
-        c.addView(ring, LinearLayout.LayoutParams(act.dp(rs), act.dp(rs)).apply { rightMargin = if (xs) 0 else act.dp(12) })
+        val rs = intArrayOf(56, 76, 112)[size]
+        c.addView(ring, LinearLayout.LayoutParams(act.dp(rs), act.dp(rs)).apply { rightMargin = act.dp(12) })
         val col = act.ll(true, Gravity.CENTER_VERTICAL)
         val head = act.tv(title, floatArrayOf(12f, 14f, 17f)[size], Th.p.text, true)
         val sub = act.tv("", floatArrayOf(11f, 12f, 14f)[size], Th.p.dim).apply {
@@ -479,7 +428,6 @@ internal class WidgetLayer(
         col.addView(head)
         col.addView(sub)
         c.addView(col, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        if (xs) col.visibility = View.GONE
         return Triple(c, ring, head to sub)
     }
 
@@ -548,63 +496,13 @@ internal class WidgetLayer(
         return c to upd
     }
 
-    private fun buildCleaner(size: Int): Pair<View, () -> Unit> {
-        val (c, ring, ts) = ringCard("RAM & cache", size)
-        val col = c.getChildAt(1) as LinearLayout
-        val busy = BooleanArray(1)
-        if (size == 0 && !xs) ts.second.visibility = View.GONE
-        val btn = act.tv("Bersihkan", floatArrayOf(11f, 12f, 14f)[size], Th.onAccent, true).apply {
-            gravity = Gravity.CENTER
-            background = act.rounded(Th.accent, act.dpf(10f))
-            setPadding(act.dp(12), act.dp(6), act.dp(12), act.dp(6))
-        }
-        col.addView(btn, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = act.dp(6)
-        })
-        val upd: () -> Unit = {
-            val am = act.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-            val mi = ActivityManager.MemoryInfo()
-            am.getMemoryInfo(mi)
-            val used = mi.totalMem - mi.availMem
-            val f = if (mi.totalMem > 0) used.toFloat() / mi.totalMem else 0f
-            ring.progress = f
-            ring.label = "${(f * 100).toInt()}%"
-            ring.ringColor = if (f > 0.85f) 0xFFE5484D.toInt() else Th.accent
-            ts.second.text = "RAM ${fmtSize(used)} dari ${fmtSize(mi.totalMem)}"
-            ring.invalidate()
-        }
-        val doClean = {
-            if (!busy[0]) {
-                busy[0] = true
-                btn.text = "Membersihkan…"
-                btn.alpha = 0.6f
-                Thread {
-                    val r = Cleaner.clean(act)
-                    act.runOnUiThread {
-                        busy[0] = false
-                        btn.text = "Bersihkan"
-                        btn.alpha = 1f
-                        upd()
-                        val ram = if (r.ramFreed >= 1_000_000L) "RAM bertambah ${fmtSize(r.ramFreed)}" else "RAM sudah cukup bersih"
-                        val cache = if (r.cacheFreed > 0) ", cache launcher ${fmtSize(r.cacheFreed)} dibersihkan" else ""
-                        Toast.makeText(act, ram + cache, Toast.LENGTH_LONG).show()
-                    }
-                }.start()
-            }
-        }
-        btn.setOnClickListener { doClean() }
-        // Ketuk di mana saja pada widget juga membersihkan (berguna pada ukuran kecil).
-        c.setOnClickListener { doClean() }
-        return c to upd
-    }
-
     private fun buildNote(it: WItem): Pair<View, () -> Unit> {
         val key = "widget_note_${it.id}"
         val c = card()
         c.gravity = Gravity.TOP
-        if (!xs) c.addView(act.tv("Catatan", 12f, Th.accent, true))
-        val body = act.tv("", if (xs) 11f else floatArrayOf(13f, 14f, 16f)[it.size], Th.p.text).apply {
-            maxLines = if (xs) 3 else intArrayOf(2, 4, 8)[it.size]
+        c.addView(act.tv("Catatan", 12f, Th.accent, true))
+        val body = act.tv("", floatArrayOf(13f, 14f, 16f)[it.size], Th.p.text).apply {
+            maxLines = intArrayOf(2, 4, 8)[it.size]
             ellipsize = TextUtils.TruncateAt.END
             setPadding(0, act.dp(4), 0, 0)
         }
