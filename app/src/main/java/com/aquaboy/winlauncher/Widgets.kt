@@ -35,6 +35,7 @@ internal enum class WType(val label: String, val desc: String, val glyph: GlyphV
     BATTERY("Baterai", "Level dan status pengisian daya", GlyphView.Kind.BATTERY),
     STORAGE("Penyimpanan", "Pemakaian penyimpanan internal", GlyphView.Kind.DRIVE),
     MEMORY("Memori", "Pemakaian RAM", GlyphView.Kind.SYSTEM),
+    CLEANER("Pembersih RAM & cache", "Bebaskan RAM dan cache launcher dengan satu ketukan", GlyphView.Kind.DELETE),
     NOTE("Catatan", "Catatan singkat, ketuk untuk mengubah", GlyphView.Kind.DOC)
 }
 
@@ -390,6 +391,7 @@ internal class WidgetLayer(
         WType.BATTERY -> buildBattery(it.size)
         WType.STORAGE -> buildStorage(it.size)
         WType.MEMORY -> buildMemory(it.size)
+        WType.CLEANER -> buildCleaner(it.size)
         WType.NOTE -> buildNote(it)
     }
 
@@ -492,6 +494,52 @@ internal class WidgetLayer(
             ts.second.text = "${fmtSize(used)} dari ${fmtSize(mi.totalMem)}" +
                 (if (size >= 1) "\n${fmtSize(mi.availMem)} tersedia" else "")
             ring.invalidate()
+        }
+        return c to upd
+    }
+
+    private fun buildCleaner(size: Int): Pair<View, () -> Unit> {
+        val (c, ring, ts) = ringCard("RAM & cache", size)
+        val col = c.getChildAt(1) as LinearLayout
+        val busy = BooleanArray(1)
+        val btn = act.tv("Bersihkan", floatArrayOf(11f, 12f, 14f)[size], Th.onAccent, true).apply {
+            gravity = Gravity.CENTER
+            background = act.rounded(Th.accent, act.dpf(10f))
+            setPadding(act.dp(12), act.dp(6), act.dp(12), act.dp(6))
+        }
+        col.addView(btn, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = act.dp(6)
+        })
+        val upd: () -> Unit = {
+            val am = act.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            val mi = ActivityManager.MemoryInfo()
+            am.getMemoryInfo(mi)
+            val used = mi.totalMem - mi.availMem
+            val f = if (mi.totalMem > 0) used.toFloat() / mi.totalMem else 0f
+            ring.progress = f
+            ring.label = "${(f * 100).toInt()}%"
+            ring.ringColor = if (f > 0.85f) 0xFFE5484D.toInt() else Th.accent
+            ts.second.text = "RAM ${fmtSize(used)} dari ${fmtSize(mi.totalMem)}"
+            ring.invalidate()
+        }
+        btn.setOnClickListener {
+            if (!busy[0]) {
+                busy[0] = true
+                btn.text = "Membersihkan…"
+                btn.alpha = 0.6f
+                Thread {
+                    val r = Cleaner.clean(act)
+                    act.runOnUiThread {
+                        busy[0] = false
+                        btn.text = "Bersihkan"
+                        btn.alpha = 1f
+                        upd()
+                        val ram = if (r.ramFreed >= 1_000_000L) "RAM bertambah ${fmtSize(r.ramFreed)}" else "RAM sudah cukup bersih"
+                        val cache = if (r.cacheFreed > 0) ", cache launcher ${fmtSize(r.cacheFreed)} dibersihkan" else ""
+                        Toast.makeText(act, ram + cache, Toast.LENGTH_LONG).show()
+                    }
+                }.start()
+            }
         }
         return c to upd
     }
