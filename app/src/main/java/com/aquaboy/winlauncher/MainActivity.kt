@@ -212,6 +212,26 @@ class MainActivity : Activity() {
         })
         registerNet()
         updateClock()
+        // Penerima pemasangan hanya aktif saat launcher terlihat. Kalau ada aplikasi
+        // dipasang/dihapus saat launcher di latar belakang, daftar dimuat ulang di sini.
+        if (appListChanged()) {
+            handler.removeCallbacks(reloadApps)
+            handler.postDelayed(reloadApps, 300)
+        }
+    }
+
+    private fun appListChanged(): Boolean = try {
+        val i = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val selfMain = MainActivity::class.java.name
+        val now = HashSet<String>()
+        for (ri in pm.queryIntentActivities(i, 0)) {
+            val ai = ri.activityInfo ?: continue
+            if (ai.packageName == packageName && ai.name == selfMain) continue
+            now.add(ComponentName(ai.packageName, ai.name).flattenToString())
+        }
+        now != byKey.keys
+    } catch (e: Exception) {
+        false
     }
 
     override fun onStop() {
