@@ -425,7 +425,7 @@ class FilesActivity : Activity() {
         tint: Int? = null, onClick: (View) -> Unit
     ): View {
         val b = ll(false, Gravity.CENTER_VERTICAL).apply {
-            background = ripple(dpf(6f))
+            background = ripple(dpf(14f))
             setPadding(dp(10), 0, dp(10), 0)
             addView(icon(kind, tint), LinearLayout.LayoutParams(dp(18), dp(18)))
             if (showLabel) addView(tv(label, 13f, Th.p.text).apply { setPadding(dp(8), 0, 0, 0) })
@@ -480,7 +480,7 @@ class FilesActivity : Activity() {
 
     private fun buildMain(): LinearLayout {
         val main = ll(true).apply {
-            if (tabletUi) background = rounded(Th.p.card, dpf(10f), Th.p.stroke, dp(1))
+            if (tabletUi) background = rounded(Th.p.card, dpf(20f), Th.p.stroke, dp(1))
         }
 
         // --- bilah alamat ---
@@ -521,7 +521,7 @@ class FilesActivity : Activity() {
         addrStack.addView(pathInput, FrameLayout.LayoutParams(MATCH, MATCH))
 
         val addrBox = ll(false, Gravity.CENTER_VERTICAL).apply {
-            background = rounded(Th.p.input, dpf(8f), Th.p.stroke, dp(1))
+            background = rounded(Th.p.input, dpf(20f), Th.p.stroke, dp(1))
             setPadding(dp(4), 0, dp(2), 0)
         }
         addrBox.addView(addrStack, LinearLayout.LayoutParams(0, MATCH, 1f))
@@ -556,7 +556,7 @@ class FilesActivity : Activity() {
             }
         }
         searchBox = ll(false, Gravity.CENTER_VERTICAL).apply {
-            background = rounded(Th.p.input, dpf(8f), Th.p.stroke, dp(1))
+            background = rounded(Th.p.input, dpf(20f), Th.p.stroke, dp(1))
             setPadding(dp(12), 0, dp(8), 0)
             addView(icon(FmK.SEARCH, Th.p.dim), LinearLayout.LayoutParams(dp(16), dp(16)))
             addView(searchInput, LinearLayout.LayoutParams(0, MATCH, 1f))
@@ -611,7 +611,7 @@ class FilesActivity : Activity() {
 
         // --- banner izin ---
         banner = ll(false, Gravity.CENTER_VERTICAL).apply {
-            background = rounded(Th.withAlpha(Th.accent, 0x22), dpf(8f), Th.withAlpha(Th.accent, 0x66), dp(1))
+            background = rounded(Th.withAlpha(Th.accent, 0x22), dpf(18f), Th.withAlpha(Th.accent, 0x66), dp(1))
             setPadding(dp(12), dp(8), dp(8), dp(8))
             visibility = View.GONE
             addView(icon(FmK.INFO, Th.accent), LinearLayout.LayoutParams(dp(20), dp(20)))
@@ -801,7 +801,7 @@ class FilesActivity : Activity() {
     private fun navItem(kind: FmK, tint: Int?, label: String, target: String, vol: FmVolume?): View {
         val active = navActive(target, vol != null)
         val item = ll(false, Gravity.CENTER_VERTICAL).apply {
-            background = if (active) rounded(Th.p.cardHover, dpf(6f)) else ripple(dpf(6f))
+            background = if (active) rounded(Th.withAlpha(Th.accent, 0x26), dpf(14f)) else ripple(dpf(14f))
             setPadding(dp(8), dp(4), dp(10), dp(4))
             setOnClickListener { navigate(target) }
         }
@@ -888,7 +888,7 @@ class FilesActivity : Activity() {
                 setPadding(dp(8), dp(6), dp(8), dp(6))
                 maxLines = 1
                 if (part.second.isNotEmpty()) {
-                    background = ripple(dpf(4f))
+                    background = ripple(dpf(10f))
                     setOnClickListener { navigate(part.second) }
                 }
                 setOnLongClickListener {
@@ -1078,7 +1078,7 @@ class FilesActivity : Activity() {
         fun head(label: String, key: Int, w: Int, weight: Float, gravity: Int): View =
             tv(label + (if (sortKey == key) arrow else ""), 12f, Th.p.dim, true).apply {
                 this.gravity = gravity
-                background = ripple(dpf(4f))
+                background = ripple(dpf(10f))
                 setPadding(dp(4), 0, dp(4), 0)
                 setOnClickListener { setSort(key) }
             }.also { colHeader.addView(it, LinearLayout.LayoutParams(w, MATCH, weight)) }
@@ -1157,7 +1157,7 @@ class FilesActivity : Activity() {
         if (tile) {
             val th = ImageView(this)
             th.scaleType = ImageView.ScaleType.CENTER_CROP
-            th.background = rounded(Th.p.cardHover, dpf(6f))
+            th.background = rounded(Th.withAlpha(Th.accent, 0x26), dpf(14f))
             th.clipToOutline = true
             th.visibility = View.GONE
             iconBox.addView(th, FrameLayout.LayoutParams(dp(isz), dp(isz), Gravity.CENTER))
@@ -1227,7 +1227,7 @@ class FilesActivity : Activity() {
         h.sub?.text = item.sub ?: (if (sizeStr.isEmpty()) dateStr else "$dateStr  ·  $sizeStr")
 
         val on = selected.contains(path)
-        h.root.background = if (on) rounded(Th.withAlpha(Th.accent, 0x33), dpf(6f)) else ripple(dpf(6f))
+        h.root.background = if (on) rounded(Th.withAlpha(Th.accent, 0x33), dpf(14f)) else ripple(dpf(14f))
         val chk = h.check
         if (chk != null) {
             chk.visibility = if (selectActive) View.VISIBLE else (if (viewMode >= 2) View.GONE else View.INVISIBLE)
@@ -1604,7 +1604,7 @@ class FilesActivity : Activity() {
             setTextColor(Th.p.text)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
             inputType = InputType.TYPE_CLASS_TEXT
-            background = rounded(Th.p.input, dpf(8f), Th.p.stroke, dp(1))
+            background = rounded(Th.p.input, dpf(20f), Th.p.stroke, dp(1))
             setPadding(dp(12), dp(10), dp(12), dp(10))
             setSelection(0, selectLen.coerceIn(0, initial.length))
         }
@@ -2203,8 +2203,8 @@ class FilesActivity : Activity() {
 
     private fun homeTile(name: String, dir: File): View {
         val tile = ll(false, Gravity.CENTER_VERTICAL).apply {
-            background = rounded(Th.p.bg, dpf(8f), Th.p.stroke, dp(1))
-            foreground = ripple(dpf(8f))
+            background = rounded(Th.p.card, dpf(18f), Th.p.stroke, dp(1))
+            foreground = ripple(dpf(18f))
             setPadding(dp(12), dp(12), dp(12), dp(12))
             setOnClickListener { navigate(dir.absolutePath) }
         }
@@ -2219,8 +2219,8 @@ class FilesActivity : Activity() {
     private fun driveCard(v: FmVolume): View {
         val (total, free) = volumeUsage(v)
         val card = ll(true).apply {
-            background = rounded(Th.p.bg, dpf(8f), Th.p.stroke, dp(1))
-            foreground = ripple(dpf(8f))
+            background = rounded(Th.p.card, dpf(18f), Th.p.stroke, dp(1))
+            foreground = ripple(dpf(18f))
             setPadding(dp(16), dp(14), dp(16), dp(14))
             setOnClickListener { navigate(v.root.absolutePath) }
         }
@@ -2248,7 +2248,7 @@ class FilesActivity : Activity() {
 
     private fun recentRow(f: File): View {
         val row = ll(false, Gravity.CENTER_VERTICAL).apply {
-            background = ripple(dpf(6f))
+            background = ripple(dpf(14f))
             setPadding(dp(8), 0, dp(8), 0)
             setOnClickListener { if (f.isDirectory) navigate(f.absolutePath) else openFile(f, false) }
         }

@@ -57,14 +57,14 @@ object Th {
 
     val DARK = Pal(
         true,
-        c(0xFF1B1F27), c(0xFF262B35), c(0xFF2F3541), c(0xF2202630), c(0xE61A1E26),
-        c(0xFFFFFFFF), c(0xFFC5CBD6), c(0xFF8A93A3), c(0x22FFFFFF), c(0x33FFFFFF), c(0xFF2B313C)
+        c(0xFF0C1A2E), c(0xFF152A47), c(0xFF1D3858), c(0xF2112240), c(0xE60A1626),
+        c(0xFFFFFFFF), c(0xFFBFD0E6), c(0xFF8196B4), c(0x225AB4FF), c(0x335AB4FF), c(0xFF1A3150)
     )
 
     val LIGHT = Pal(
         false,
-        c(0xFFEEF3FA), c(0xFFFFFFFF), c(0xFFF3F7FC), c(0xF2F5F8FD), c(0xE6EBF1FA),
-        c(0xFF14181F), c(0xFF4A5565), c(0xFF7A8696), c(0x1A000000), c(0x22000000), c(0xFFFFFFFF)
+        c(0xFFE8F2FF), c(0xFFFFFFFF), c(0xFFE1EEFF), c(0xF2F3F9FF), c(0xE6E3EFFC),
+        c(0xFF0F1B2D), c(0xFF445873), c(0xFF7388A6), c(0x240078D4), c(0x1F0078D4), c(0xFFF1F7FF)
     )
 
     val ACCENTS = listOf(
@@ -131,6 +131,16 @@ object Th {
 
     fun withAlpha(color: Int, a: Int): Int = (color and 0x00FFFFFF) or (a shl 24)
 
+    /** Gradasi azure lembut untuk kartu utama (header, hero). Teks di atasnya selalu putih. */
+    fun heroGradient(radius: Float): GradientDrawable {
+        val base = ACCENTS[accentIdx].light
+        val navy = c(0xFF06214D)
+        return GradientDrawable(
+            GradientDrawable.Orientation.TL_BR,
+            intArrayOf(blend(base, navy, 0.40f) or 0xFF000000.toInt(), base or 0xFF000000.toInt(), blend(base, Color.WHITE, 0.30f) or 0xFF000000.toInt())
+        ).apply { cornerRadius = radius }
+    }
+
     /** Context bertema gelap/terang untuk widget bawaan (popup menu, kalender). */
     fun themed(ctx: Context): Context = ContextThemeWrapper(
         ctx,
@@ -149,6 +159,14 @@ fun Context.rounded(color: Int, radius: Float, strokeColor: Int = 0, strokeW: In
         cornerRadius = radius
         if (strokeW > 0) setStroke(strokeW, strokeColor)
     }
+
+/** Kartu lembut: sudut besar, garis tipis, bayangan halus (hanya di tema terang). */
+fun Context.softCard(radius: Float = dpf(18f)): GradientDrawable =
+    rounded(Th.p.card, radius, Th.p.stroke, dp(1))
+
+fun View.lift(dpValue: Float = 2f) {
+    if (!Th.dark && Build.VERSION.SDK_INT >= 21) elevation = context.dpf(dpValue)
+}
 
 fun Context.ripple(radius: Float = dpf(6f), base: Int = 0): RippleDrawable {
     val mask = GradientDrawable().apply {
@@ -197,8 +215,8 @@ fun fmtDate(ms: Long): String =
 fun Context.textButton(text: String, primary: Boolean, onClick: () -> Unit): TextView =
     tv(text, 14f, if (primary) Th.accent else Th.p.text, true).apply {
         gravity = Gravity.CENTER
-        setPadding(dp(16), dp(10), dp(16), dp(10))
-        background = ripple(dpf(6f))
+        setPadding(dp(18), dp(10), dp(18), dp(10))
+        background = if (primary) ripple(dpf(20f), Th.withAlpha(Th.accent, 0x1F)) else ripple(dpf(20f))
         setOnClickListener { onClick() }
     }
 
@@ -215,7 +233,7 @@ fun Context.themedSwitch(checked: Boolean, onChange: (Boolean) -> Unit): Switch 
 /** Kontrol segmen (mis. Terang | Gelap | Sistem). */
 fun Context.segmented(options: List<String>, selected: Int, onSelect: (Int) -> Unit): View {
     val box = ll(false, Gravity.CENTER_VERTICAL).apply {
-        background = rounded(Th.p.input, dpf(8f), Th.p.stroke, dp(1))
+        background = rounded(Th.p.input, dpf(20f), Th.p.stroke, dp(1))
         setPadding(dp(3), dp(3), dp(3), dp(3))
     }
     val labels = ArrayList<TextView>()
@@ -223,7 +241,7 @@ fun Context.segmented(options: List<String>, selected: Int, onSelect: (Int) -> U
         for ((i, t) in labels.withIndex()) {
             val on = i == sel
             t.setTextColor(if (on) Th.onAccent else Th.p.text)
-            t.background = if (on) rounded(Th.accent, dpf(6f)) else ripple(dpf(6f))
+            t.background = if (on) rounded(Th.accent, dpf(17f)) else ripple(dpf(17f))
         }
     }
     for ((i, o) in options.withIndex()) {
@@ -252,8 +270,8 @@ fun Activity.showDialog(
     val d = Dialog(this)
     d.requestWindowFeature(Window.FEATURE_NO_TITLE)
     val box = ll(true).apply {
-        background = rounded(Th.p.card, dpf(12f), Th.p.stroke, dp(1))
-        setPadding(dp(24), dp(22), dp(24), dp(12))
+        background = rounded(Th.p.card, dpf(26f), Th.p.stroke, dp(1))
+        setPadding(dp(26), dp(24), dp(22), dp(14))
     }
     box.addView(tv(title, 18f, Th.p.text, true))
     if (body != null) {
@@ -300,8 +318,8 @@ fun Activity.promptDialog(
         setTextColor(Th.p.text)
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
         inputType = InputType.TYPE_CLASS_TEXT
-        background = rounded(Th.p.input, dpf(8f), Th.p.stroke, dp(1))
-        setPadding(dp(12), dp(10), dp(12), dp(10))
+        background = rounded(Th.p.input, dpf(16f), Th.p.stroke, dp(1))
+        setPadding(dp(16), dp(11), dp(16), dp(11))
         setSelection(initial.length)
     }
     showDialog(title, input, okText, "Batal") { onOk(input.text.toString().trim()) }

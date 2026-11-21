@@ -12,6 +12,7 @@ import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.graphics.Color
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
@@ -493,7 +494,7 @@ class SettingsActivity : Activity() {
         val used = total - free
         rows.add(SCustom {
             val box = ll(true).apply {
-                background = rounded(Th.p.card, dpf(8f), Th.p.stroke, dp(1))
+                background = softCard()
                 setPadding(dp(20), dp(18), dp(20), dp(18))
             }
             box.addView(tv("Penyimpanan internal", 14f, Th.p.text, true))
@@ -510,7 +511,7 @@ class SettingsActivity : Activity() {
         rows.add(SHeader("Memori (RAM)"))
         rows.add(SCustom {
             val box = ll(true).apply {
-                background = rounded(Th.p.card, dpf(8f), Th.p.stroke, dp(1))
+                background = softCard()
                 setPadding(dp(20), dp(18), dp(20), dp(18))
             }
             box.addView(tv("${fmtSize(mi.totalMem - mi.availMem)} dipakai dari ${fmtSize(mi.totalMem)}", 13f, Th.p.dim).apply { setPadding(0, 0, 0, dp(10)) })
@@ -563,21 +564,27 @@ class SettingsActivity : Activity() {
     // ---------- komponen kustom ----------
     private fun hero(kind: GlyphView.Kind, title: String, sub: String, sub2: String?): View {
         val box = ll(false, Gravity.CENTER_VERTICAL).apply {
-            background = rounded(Th.p.card, dpf(8f), Th.p.stroke, dp(1))
-            setPadding(dp(20), dp(20), dp(20), dp(20))
+            background = Th.heroGradient(dpf(26f))
+            setPadding(dp(22), dp(22), dp(22), dp(22))
+            lift(4f)
         }
         val badge = FrameLayout(this).apply {
-            background = rounded(Th.blend(Th.p.card, Th.accent, 0.2f), dpf(16f))
-            addView(icon(kind, Th.accent), FrameLayout.LayoutParams(dp(32), dp(32), Gravity.CENTER))
+            background = rounded(0x33FFFFFF, dpf(22f), 0x55FFFFFF, dp(1))
+            addView(icon(kind, Color.WHITE), FrameLayout.LayoutParams(dp(32), dp(32), Gravity.CENTER))
         }
         box.addView(badge, LinearLayout.LayoutParams(dp(64), dp(64)).apply { rightMargin = dp(18) })
         val col = ll(true)
-        col.addView(tv(title, 20f, Th.p.text, true).apply {
+        col.addView(tv(title, 20f, Color.WHITE, true).apply {
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
         })
-        col.addView(tv(sub, 13f, Th.p.dim).apply { setPadding(0, dp(3), 0, 0) })
-        if (sub2 != null) col.addView(tv(sub2, 12f, Th.p.faint).apply { setPadding(0, dp(2), 0, 0) })
+        col.addView(tv(sub, 13f, 0xDDFFFFFF.toInt()).apply { setPadding(0, dp(3), 0, 0) })
+        if (sub2 != null) {
+            col.addView(tv(sub2, 12f, 0xFF1B3A6B.toInt(), true).apply {
+                background = rounded(0xCCFFFFFF.toInt(), dpf(12f))
+                setPadding(dp(10), dp(3), dp(10), dp(3))
+            }, LinearLayout.LayoutParams(WRAP, WRAP).apply { topMargin = dp(8) })
+        }
         box.addView(col, LinearLayout.LayoutParams(0, WRAP, 1f))
         return box
     }
@@ -587,7 +594,7 @@ class SettingsActivity : Activity() {
 
     private fun profileCard(): View {
         val box = ll(true).apply {
-            background = rounded(Th.p.card, dpf(8f), Th.p.stroke, dp(1))
+            background = softCard()
             setPadding(dp(20), dp(20), dp(20), dp(16))
         }
         val top = ll(false, Gravity.CENTER_VERTICAL)
@@ -715,7 +722,7 @@ class SettingsActivity : Activity() {
 
     private fun bigStat(glyph: GlyphView, value: String, label: String): View {
         val box = ll(false, Gravity.CENTER_VERTICAL).apply {
-            background = rounded(Th.p.card, dpf(8f), Th.p.stroke, dp(1))
+            background = softCard()
             setPadding(dp(20), dp(20), dp(20), dp(20))
         }
         box.addView(glyph, LinearLayout.LayoutParams(dp(56), dp(56)).apply { rightMargin = dp(18) })
@@ -774,7 +781,7 @@ class SettingsActivity : Activity() {
             row.addView(tile, LinearLayout.LayoutParams(0, WRAP, 1f).apply { setMargins(dp(4), 0, dp(4), 0) })
         }
         val box = ll(true).apply {
-            background = rounded(Th.p.card, dpf(8f), Th.p.stroke, dp(1))
+            background = softCard()
             setPadding(dp(14), dp(16), dp(14), dp(12))
         }
         box.addView(row)
@@ -793,7 +800,7 @@ class SettingsActivity : Activity() {
             }
             val cell = ll(true, Gravity.CENTER_HORIZONTAL).apply {
                 setPadding(dp(8), dp(6), dp(8), dp(6))
-                background = ripple(dpf(8f))
+                background = ripple(dpf(16f))
                 setOnClickListener {
                     prefs.edit().putInt("accent_idx", i).apply()
                     bump()
@@ -806,7 +813,7 @@ class SettingsActivity : Activity() {
         }
         hs.addView(row)
         val box = ll(true).apply {
-            background = rounded(Th.p.card, dpf(8f), Th.p.stroke, dp(1))
+            background = softCard()
             setPadding(dp(8), dp(8), dp(8), dp(8))
         }
         box.addView(hs)
@@ -828,7 +835,7 @@ class SettingsActivity : Activity() {
 
     /** Daftar aplikasi yang disematkan (taskbar/Start/desktop) dengan tombol naik dan hapus. */
     private fun pinManager(prefKey: String): View {
-        val box = ll(true).apply { background = rounded(Th.p.card, dpf(8f), Th.p.stroke, dp(1)) }
+        val box = ll(true).apply { background = softCard() }
         val keys = loadKeys(prefKey)
         for ((i, k) in keys.withIndex()) {
             val cn = ComponentName.unflattenFromString(k) ?: continue
@@ -864,7 +871,7 @@ class SettingsActivity : Activity() {
         }
         val add = ll(false, Gravity.CENTER_VERTICAL).apply {
             setPadding(dp(16), dp(12), dp(16), dp(12))
-            background = ripple(dpf(8f))
+            background = ripple(dpf(16f))
             setOnClickListener { showAddDialog(prefKey) }
         }
         add.addView(icon(GlyphView.Kind.PLUS, Th.accent), LinearLayout.LayoutParams(dp(18), dp(18)).apply { rightMargin = dp(14) })
@@ -881,7 +888,7 @@ class SettingsActivity : Activity() {
         for (a in candidates) {
             val row = ll(false, Gravity.CENTER_VERTICAL).apply {
                 setPadding(dp(8), dp(8), dp(8), dp(8))
-                background = ripple(dpf(8f))
+                background = ripple(dpf(16f))
                 setOnClickListener {
                     dlg?.dismiss()
                     val l = loadKeys(prefKey)
@@ -917,11 +924,11 @@ class SettingsActivity : Activity() {
             setTextColor(Th.p.text)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             inputType = InputType.TYPE_CLASS_TEXT
-            background = rounded(Th.p.input, dpf(8f), Th.p.stroke, dp(1))
+            background = rounded(Th.p.input, dpf(22f), Th.p.stroke, dp(1))
             setPadding(dp(14), dp(10), dp(14), dp(10))
         }
         box.addView(filter, LinearLayout.LayoutParams(MATCH, WRAP).apply { bottomMargin = dp(8) })
-        val list = ll(true).apply { background = rounded(Th.p.card, dpf(8f), Th.p.stroke, dp(1)) }
+        val list = ll(true).apply { background = softCard() }
         box.addView(list)
 
         fun fill(q: String) {
@@ -931,7 +938,7 @@ class SettingsActivity : Activity() {
                 if (ql.isNotEmpty() && !a.label.lowercase().contains(ql) && !a.pkg.lowercase().contains(ql)) continue
                 val row = ll(false, Gravity.CENTER_VERTICAL).apply {
                     setPadding(dp(16), dp(8), dp(16), dp(8))
-                    background = ripple(dpf(8f))
+                    background = ripple(dpf(16f))
                     setOnClickListener {
                         startIntent(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", a.pkg, null)))
                     }
@@ -992,7 +999,7 @@ class SettingsActivity : Activity() {
             })
         }
         searchBox = ll(false, Gravity.CENTER_VERTICAL).apply {
-            background = rounded(Th.p.input, dpf(8f), Th.p.stroke, dp(1))
+            background = rounded(Th.p.input, dpf(22f), Th.p.stroke, dp(1))
             setPadding(dp(14), 0, dp(10), 0)
             addView(icon(GlyphView.Kind.SEARCH, Th.p.dim), LinearLayout.LayoutParams(dp(18), dp(18)))
             addView(searchInput, LinearLayout.LayoutParams(0, MATCH, 1f))
@@ -1007,7 +1014,7 @@ class SettingsActivity : Activity() {
         content.setPadding(pad, dp(8), pad, dp(32))
         scroll.addView(content, FrameLayout.LayoutParams(MATCH, WRAP))
 
-        headerTitle = tv("", 20f, Th.p.text, true)
+        headerTitle = tv("", 22f, Th.p.text, true)
         backBtn = FrameLayout(this).apply {
             background = ripple(dpf(20f))
             addView(icon(GlyphView.Kind.BACK), FrameLayout.LayoutParams(dp(20), dp(20), Gravity.CENTER))
@@ -1021,7 +1028,7 @@ class SettingsActivity : Activity() {
 
             val user = ll(false, Gravity.CENTER_VERTICAL).apply {
                 setPadding(dp(8), dp(8), dp(8), dp(8))
-                background = ripple(dpf(8f))
+                background = ripple(dpf(22f))
                 setOnClickListener { goTo("accounts") }
             }
             val holder = FrameLayout(this)
@@ -1103,7 +1110,7 @@ class SettingsActivity : Activity() {
         val sel = topOf(current)
         for ((id, v) in navViews) {
             val on = id == sel
-            v.first.background = if (on) rounded(Th.p.cardHover, dpf(6f), Th.p.stroke, dp(1)) else ripple(dpf(6f))
+            v.first.background = if (on) rounded(Th.withAlpha(Th.accent, 0x26), dpf(22f)) else ripple(dpf(22f))
             v.second.visibility = if (on) View.VISIBLE else View.INVISIBLE
         }
     }
@@ -1233,18 +1240,24 @@ class SettingsActivity : Activity() {
 
     // ---------- render baris ----------
     private fun addCard(parent: LinearLayout, row: View) {
-        val card = FrameLayout(this).apply { background = rounded(Th.p.card, dpf(8f), Th.p.stroke, dp(1)) }
+        val card = FrameLayout(this).apply { background = softCard(); lift() }
         card.addView(row, FrameLayout.LayoutParams(MATCH, WRAP))
-        parent.addView(card, LinearLayout.LayoutParams(MATCH, WRAP).apply { bottomMargin = dp(4) })
+        parent.addView(card, LinearLayout.LayoutParams(MATCH, WRAP).apply { bottomMargin = dp(8) })
     }
 
     private fun rowShell(kind: GlyphView.Kind?, title: String, sub: String?): LinearLayout {
         val row = ll(false, Gravity.CENTER_VERTICAL).apply {
-            setPadding(dp(16), dp(12), dp(16), dp(12))
-            minimumHeight = dp(60)
-            background = ripple(dpf(8f))
+            setPadding(dp(14), dp(12), dp(16), dp(12))
+            minimumHeight = dp(62)
+            background = ripple(dpf(18f))
         }
-        if (kind != null) row.addView(icon(kind), LinearLayout.LayoutParams(dp(20), dp(20)).apply { rightMargin = dp(16) })
+        if (kind != null) {
+            val tile = FrameLayout(this).apply {
+                background = rounded(Th.withAlpha(Th.accent, 0x26), dpf(12f))
+                addView(icon(kind, Th.accent), FrameLayout.LayoutParams(dp(20), dp(20), Gravity.CENTER))
+            }
+            row.addView(tile, LinearLayout.LayoutParams(dp(38), dp(38)).apply { rightMargin = dp(14) })
+        }
         val col = ll(true)
         col.addView(tv(title, 14f))
         if (!sub.isNullOrEmpty()) col.addView(tv(sub, 12f, Th.p.dim).apply { setPadding(0, dp(2), 0, 0) })
@@ -1262,7 +1275,7 @@ class SettingsActivity : Activity() {
     private fun renderRows(rows: List<SRow>, parent: LinearLayout) {
         for (r in rows) {
             when (r) {
-                is SHeader -> parent.addView(tv(r.text, 13f, Th.p.dim, true).apply { setPadding(dp(4), dp(18), 0, dp(6)) })
+                is SHeader -> parent.addView(tv(r.text, 13f, Th.accent, true).apply { setPadding(dp(8), dp(20), 0, dp(8)) })
                 is SCustom -> parent.addView(r.build(), LinearLayout.LayoutParams(MATCH, WRAP).apply { bottomMargin = dp(4) })
                 is SLink -> addCard(parent, linkShell(r.kind, r.title, r.sub) { r.onClick() })
                 is SToggle -> {
