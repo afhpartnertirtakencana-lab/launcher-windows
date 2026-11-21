@@ -483,7 +483,7 @@ class MainActivity : Activity() {
 
     private fun buildStartPanel() {
         startPanel = ll(true).apply {
-            background = rounded(Th.panel(), dpf(12f), Th.p.stroke, dp(1))
+            background = rounded(Th.panel(), dpf(if (tablet) 12f else 22f), Th.p.stroke, dp(1))
             clipToOutline = true
             elevation = dpf(18f)
             visibility = View.GONE
@@ -493,7 +493,7 @@ class MainActivity : Activity() {
             hint = "Ketik di sini untuk mencari"
             setHintTextColor(Th.p.faint)
             setTextColor(Th.p.text)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, if (tablet) 14f else 15f)
             background = null
             inputType = InputType.TYPE_CLASS_TEXT
             imeOptions = EditorInfo.IME_ACTION_SEARCH
@@ -518,14 +518,16 @@ class MainActivity : Activity() {
         }
 
         val searchBox = ll(false, Gravity.CENTER_VERTICAL).apply {
-            background = rounded(Th.p.input, dpf(20f), Th.p.stroke, dp(1))
-            setPadding(dp(14), 0, dp(12), 0)
-            addView(icon(GlyphView.Kind.SEARCH, Th.p.dim), LinearLayout.LayoutParams(dp(18), dp(18)))
+            background = rounded(Th.p.input, dpf(if (tablet) 20f else 26f), Th.p.stroke, dp(1))
+            setPadding(dp(if (tablet) 14 else 18), 0, dp(12), 0)
+            addView(icon(GlyphView.Kind.SEARCH, Th.p.dim), LinearLayout.LayoutParams(dp(if (tablet) 18 else 20), dp(if (tablet) 18 else 20)))
             addView(searchInput, LinearLayout.LayoutParams(0, MATCH, 1f))
         }
         startPanel.addView(
             searchBox,
-            LinearLayout.LayoutParams(MATCH, dp(42)).apply { setMargins(dp(16), dp(16), dp(16), dp(8)) }
+            LinearLayout.LayoutParams(MATCH, dp(if (tablet) 42 else 50)).apply {
+                if (tablet) setMargins(dp(16), dp(16), dp(16), dp(8)) else setMargins(dp(18), dp(20), dp(18), dp(10))
+            }
         )
 
         startScroll = ScrollView(this).apply {
@@ -560,7 +562,7 @@ class MainActivity : Activity() {
 
         footer.addView(footerIcon(GlyphView.Kind.GEAR) { openSettingsApp() }, LinearLayout.LayoutParams(dp(40), dp(40)))
         footer.addView(footerIcon(GlyphView.Kind.POWER) { showPowerMenu(it) }, LinearLayout.LayoutParams(dp(40), dp(40)))
-        startPanel.addView(footer, LinearLayout.LayoutParams(MATCH, dp(60)))
+        startPanel.addView(footer, LinearLayout.LayoutParams(MATCH, dp(if (tablet) 60 else 66)))
 
         root.addView(startPanel, FrameLayout.LayoutParams(dp(320), dp(400)))
     }
@@ -764,7 +766,9 @@ class MainActivity : Activity() {
         val bottom = max(baseBottom, if (imeH > 0) imeH + dp(8) else 0)
 
         val pw = if (tablet) min(dp(640), availW - dp(24)) else availW - dp(16)
-        val ph = min(dp(if (tablet) 720 else 660), rh - insT - bottom - dp(8))
+        // HP potret: panel Start dibuat tinggi (hampir penuh) agar daftar aplikasi lega
+        val ph = if (tablet) min(dp(720), rh - insT - bottom - dp(8))
+        else min(dp(780), rh - insT - bottom - dp(12))
         startPanel.layoutParams = FrameLayout.LayoutParams(pw, ph).apply {
             gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
             bottomMargin = bottom
@@ -1074,8 +1078,10 @@ class MainActivity : Activity() {
     }
 
     private fun headerRow(title: String, action: String?, onAction: (() -> Unit)?): View {
-        val row = ll(false, Gravity.CENTER_VERTICAL).apply { setPadding(dp(24), dp(10), dp(16), dp(4)) }
-        row.addView(tv(title, 14f, Th.p.text, true), LinearLayout.LayoutParams(0, WRAP, 1f))
+        val row = ll(false, Gravity.CENTER_VERTICAL).apply {
+            if (tablet) setPadding(dp(24), dp(10), dp(16), dp(4)) else setPadding(dp(24), dp(14), dp(16), dp(6))
+        }
+        row.addView(tv(title, if (tablet) 14f else 15f, Th.p.text, true), LinearLayout.LayoutParams(0, WRAP, 1f))
         if (action != null) {
             val b = tv(action, 12f).apply {
                 background = ripple(dpf(6f), Th.p.cardHover)
@@ -1197,18 +1203,19 @@ class MainActivity : Activity() {
 
     private fun tile(app: AppEntry): View {
         val v = ll(true, Gravity.CENTER_HORIZONTAL).apply {
-            setPadding(dp(4), dp(10), dp(4), dp(8))
-            background = ripple(dpf(8f))
+            if (tablet) setPadding(dp(4), dp(10), dp(4), dp(8)) else setPadding(dp(2), dp(12), dp(2), dp(10))
+            background = ripple(dpf(if (tablet) 8f else 14f))
         }
+        val iconPx = dp(if (tablet) 38 else 46)
         v.addView(
             ImageView(this).apply { setImageBitmap(iconOf(app)) },
-            LinearLayout.LayoutParams(dp(38), dp(38))
+            LinearLayout.LayoutParams(iconPx, iconPx)
         )
-        val t = tv(app.label, 12f).apply {
+        val t = tv(app.label, if (tablet) 12f else 11.5f).apply {
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
             gravity = Gravity.CENTER
-            setPadding(0, dp(6), 0, 0)
+            setPadding(0, dp(if (tablet) 6 else 8), 0, 0)
         }
         v.addView(t, LinearLayout.LayoutParams(MATCH, WRAP))
         v.setOnClickListener { launch(app) }
@@ -1247,18 +1254,19 @@ class MainActivity : Activity() {
     private fun listRow(app: AppEntry): View {
         val v = ll(false, Gravity.CENTER_VERTICAL).apply {
             setPadding(dp(16), 0, dp(16), 0)
-            background = ripple(dpf(8f))
-            layoutParams = LinearLayout.LayoutParams(MATCH, dp(44)).apply { setMargins(dp(8), 0, dp(8), 0) }
+            background = ripple(dpf(if (tablet) 8f else 12f))
+            layoutParams = LinearLayout.LayoutParams(MATCH, dp(if (tablet) 44 else 54)).apply { setMargins(dp(8), 0, dp(8), 0) }
         }
+        val rowIcon = dp(if (tablet) 26 else 34)
         v.addView(
             ImageView(this).apply { setImageBitmap(iconOf(app)) },
-            LinearLayout.LayoutParams(dp(26), dp(26))
+            LinearLayout.LayoutParams(rowIcon, rowIcon)
         )
         v.addView(
-            tv(app.label, 14f).apply {
+            tv(app.label, if (tablet) 14f else 15f).apply {
                 maxLines = 1
                 ellipsize = TextUtils.TruncateAt.END
-                setPadding(dp(14), 0, 0, 0)
+                setPadding(dp(if (tablet) 14 else 16), 0, 0, 0)
             },
             LinearLayout.LayoutParams(0, WRAP, 1f)
         )
