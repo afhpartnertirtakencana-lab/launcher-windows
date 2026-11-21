@@ -469,7 +469,7 @@ fun Activity.attachWindowBar(rootFrame: android.widget.FrameLayout, title: Strin
 
 /**
  * Pintasan keyboard untuk jendela milik launcher (File Explorer, Pengaturan).
- * Alt+D / Ctrl+Esc / Alt+S: kembali ke desktop. Alt+E: File Explorer. Alt+I: Pengaturan.
+ * Ctrl+Esc / Alt+S: kembali ke desktop. Alt+E: File Explorer. Alt+I: Pengaturan.
  */
 fun Activity.handleShortcut(e: android.view.KeyEvent): Boolean {
     if (e.action != android.view.KeyEvent.ACTION_DOWN || e.repeatCount != 0) return false
@@ -488,7 +488,7 @@ fun Activity.handleShortcut(e: android.view.KeyEvent): Boolean {
     }
     if (e.isAltPressed && !e.isCtrlPressed) {
         when (e.keyCode) {
-            android.view.KeyEvent.KEYCODE_D, android.view.KeyEvent.KEYCODE_S, android.view.KeyEvent.KEYCODE_SPACE -> {
+            android.view.KeyEvent.KEYCODE_S, android.view.KeyEvent.KEYCODE_SPACE -> {
                 home()
                 return true
             }

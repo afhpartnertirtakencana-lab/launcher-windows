@@ -24,6 +24,7 @@ import android.net.Uri
 import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
@@ -59,6 +60,7 @@ import android.widget.SeekBar
 import android.widget.Space
 import android.widget.TextView
 import android.widget.Toast
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -273,7 +275,7 @@ class MainActivity : Activity() {
     /**
      * Pintasan keyboard (untuk tablet dengan keyboard/mouse). Memakai Alt, bukan tombol Windows,
      * karena Android sering memakai Win+huruf untuk dirinya sendiri.
-     *   Alt+E File Explorer, Alt+I Pengaturan, Alt+D desktop (tutup panel),
+     *   Alt+E File Explorer, Alt+I Pengaturan,
      *   Alt+S atau Alt+Spasi cari di Start, Ctrl+Esc buka/tutup Start.
      */
     override fun dispatchKeyEvent(e: KeyEvent): Boolean {
@@ -287,7 +289,6 @@ class MainActivity : Activity() {
                 when (k) {
                     KeyEvent.KEYCODE_E -> { closePanels(); openOwnWindow(FilesActivity::class.java); return true }
                     KeyEvent.KEYCODE_I -> { openSettingsApp(); return true }
-                    KeyEvent.KEYCODE_D -> { closePanels(); return true }
                     KeyEvent.KEYCODE_S, KeyEvent.KEYCODE_SPACE -> { openStart(true); return true }
                 }
             }
@@ -1341,7 +1342,100 @@ class MainActivity : Activity() {
             .sortedWith(compareBy({ !it.label.lowercase().startsWith(ql) }, { it.label.lowercase() }))
     }
 
+    private fun searchRow(kind: GlyphView.Kind, title: String, sub: String?, onClick: () -> Unit): View {
+        val v = ll(false, Gravity.CENTER_VERTICAL).apply {
+            setPadding(dp(16), dp(6), dp(16), dp(6))
+            background = ripple(dpf(16f))
+            minimumHeight = dp(if (tablet) 48 else 56)
+            layoutParams = LinearLayout.LayoutParams(MATCH, WRAP).apply { setMargins(dp(8), 0, dp(8), 0) }
+            setOnClickListener { onClick() }
+        }
+        v.addView(icon(kind, Th.accent), LinearLayout.LayoutParams(dp(22), dp(22)))
+        val col = ll(true).apply { setPadding(dp(if (tablet) 14 else 16), 0, 0, 0) }
+        col.addView(tv(title, if (tablet) 14f else 15f).apply {
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        })
+        if (sub != null) col.addView(tv(sub, 11.5f, Th.p.dim).apply {
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        })
+        v.addView(col, LinearLayout.LayoutParams(0, WRAP, 1f))
+        return v
+    }
+
+    private val settingsShortcuts = listOf(
+        Triple("Sistem", "system", GlyphView.Kind.SYSTEM),
+        Triple("Bluetooth & perangkat", "bluetooth", GlyphView.Kind.BLUETOOTH),
+        Triple("Jaringan & internet", "network", GlyphView.Kind.NET),
+        Triple("Personalisasi tema warna wallpaper", "personalize", GlyphView.Kind.PERSONALIZE),
+        Triple("Aplikasi", "apps", GlyphView.Kind.APPS),
+        Triple("Aplikasi tersembunyi", "hiddenApps", GlyphView.Kind.APPS),
+        Triple("Akun cadangan pulihkan", "accounts", GlyphView.Kind.ACCOUNTS),
+        Triple("Waktu & bahasa", "time", GlyphView.Kind.TIME),
+        Triple("Aksesibilitas", "access", GlyphView.Kind.ACCESS),
+        Triple("Privasi & keamanan", "privacy", GlyphView.Kind.PRIVACY),
+        Triple("Pembaruan", "update", GlyphView.Kind.UPDATE)
+    )
+
+    @Volatile private var searchGen = 0
+
+    private fun searchFiles(q: String, box: LinearLayout) {
+        val gen = ++searchGen
+        if (q.length < 2) return
+        Thread {
+            val found = ArrayList<File>()
+            val ql = q.lowercase()
+            val root = Environment.getExternalStorageDirectory()
+            fun walk(d: File, depth: Int) {
+                if (found.size >= 8 || depth > 4 || gen != searchGen) return
+                val ch = d.listFiles() ?: return
+                for (f in ch) {
+                    if (found.size >= 8 || gen != searchGen) return
+                    if (f.name.startsWith(".")) continue
+                    if (f.name.lowercase().contains(ql)) found.add(f)
+                    if (f.isDirectory) walk(f, depth + 1)
+                }
+            }
+            for (n in listOf("Download", "Documents", "DCIM", "Pictures", "Music", "Movies")) {
+                if (gen != searchGen) return@Thread
+                walk(File(root, n), 0)
+            }
+            runOnUiThread {
+                if (gen != searchGen || box.parent == null) return@runOnUiThread
+                box.removeAllViews()
+                if (found.isEmpty()) {
+                    box.visibility = View.GONE
+                    return@runOnUiThread
+                }
+                box.addView(headerRow("File", null, null))
+                for (f in found) {
+                    val dir = if (f.isDirectory) f else (f.parentFile ?: root)
+                    box.addView(
+                        searchRow(
+                            if (f.isDirectory) GlyphView.Kind.FOLDER else GlyphView.Kind.FILE,
+                            f.name,
+                            f.parent?.removePrefix(root.absolutePath)?.ifEmpty { "/" }
+                        ) {
+                            closePanels()
+                            openOwnWindow(FilesActivity::class.java) { putExtra(FilesActivity.EXTRA_PATH, dir.absolutePath) }
+                        }
+                    )
+                }
+            }
+        }.start()
+    }
+
     private fun renderSearch(q: String) {
+        // Kalkulator cepat: ketik mis. 12*(3+4)
+        calc(q)?.let { r ->
+            startContent.addView(headerRow("Kalkulator", null, null))
+            startContent.addView(searchRow(GlyphView.Kind.PLUS, "= $r", "Ketuk untuk menyalin hasil") {
+                val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                cm.setPrimaryClip(ClipData.newPlainText("hasil", r))
+                Toast.makeText(this, "Hasil disalin", Toast.LENGTH_SHORT).show()
+            })
+        }
         val res = searchResults(q)
         startContent.addView(headerRow("Aplikasi", null, null))
         if (res.isEmpty()) {
@@ -1351,6 +1445,21 @@ class MainActivity : Activity() {
         } else {
             for (a in res) startContent.addView(listRow(a))
         }
+        val ql = q.lowercase()
+        val sets = settingsShortcuts.filter { it.first.lowercase().contains(ql) }
+        if (sets.isNotEmpty()) {
+            startContent.addView(headerRow("Pengaturan", null, null))
+            for ((title, id, kind) in sets) {
+                val shown = title.substringBefore(" tema").substringBefore(" cadangan")
+                startContent.addView(searchRow(kind, shown, "Buka di Pengaturan") {
+                    closePanels()
+                    openOwnWindow(SettingsActivity::class.java) { putExtra(SettingsActivity.EXTRA_PAGE, id) }
+                })
+            }
+        }
+        val fileBox = ll(true)
+        startContent.addView(fileBox, LinearLayout.LayoutParams(MATCH, WRAP))
+        searchFiles(q, fileBox)
         startContent.addView(headerRow("Web", null, null))
         val web = ll(false, Gravity.CENTER_VERTICAL).apply {
             setPadding(dp(16), 0, dp(16), 0)
@@ -1919,5 +2028,81 @@ class MainActivity : Activity() {
             // sudah dilepas
         }
         netRegistered = false
+    }
+}
+
+
+/** Kalkulator kecil: + - * / ^ dan kurung. Mengembalikan teks hasil, atau null bila bukan ekspresi hitung. */
+internal fun calc(input: String): String? {
+    val s = input.replace(" ", "").replace(',', '.').replace('x', '*').replace('X', '*')
+        .replace('\u00D7', '*').replace('\u00F7', '/')
+    if (s.isEmpty() || !s.any { it.isDigit() } || !s.any { it in "+-*/^" }) return null
+    if (s.any { !(it.isDigit() || it in "+-*/^().") }) return null
+    return try {
+        val v = ExprParser(s).parse()
+        if (v.isNaN() || v.isInfinite()) null
+        else java.math.BigDecimal(v).setScale(8, java.math.RoundingMode.HALF_UP).stripTrailingZeros().toPlainString()
+    } catch (e: Exception) {
+        null
+    }
+}
+
+private class ExprParser(private val s: String) {
+    private var pos = 0
+    private fun peek(): Char = if (pos < s.length) s[pos] else '\u0000'
+
+    fun parse(): Double {
+        val v = expr()
+        if (pos != s.length) throw IllegalArgumentException()
+        return v
+    }
+
+    private fun expr(): Double {
+        var v = term()
+        while (peek() == '+' || peek() == '-') {
+            val op = s[pos++]
+            val r = term()
+            v = if (op == '+') v + r else v - r
+        }
+        return v
+    }
+
+    private fun term(): Double {
+        var v = power()
+        while (peek() == '*' || peek() == '/') {
+            val op = s[pos++]
+            val r = power()
+            v = if (op == '*') v * r else v / r
+        }
+        return v
+    }
+
+    private fun power(): Double {
+        val b = unary()
+        if (peek() == '^') {
+            pos++
+            return Math.pow(b, power())
+        }
+        return b
+    }
+
+    private fun unary(): Double {
+        if (peek() == '-') { pos++; return -unary() }
+        if (peek() == '+') { pos++; return unary() }
+        return atom()
+    }
+
+    private fun atom(): Double {
+        if (peek() == '(') {
+            pos++
+            val v = expr()
+            if (peek() != ')') throw IllegalArgumentException()
+            pos++
+            return v
+        }
+        val start = pos
+        while (peek().isDigit() || peek() == '.') pos++
+        if (start == pos) throw IllegalArgumentException()
+        return s.substring(start, pos).toDouble()
     }
 }
