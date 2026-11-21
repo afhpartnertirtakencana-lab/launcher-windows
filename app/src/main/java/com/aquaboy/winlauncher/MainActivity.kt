@@ -492,13 +492,16 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Warna panel: di HP dibuat hampir pekat supaya ikon/widget di belakangnya tidak menembus teks. */
+    private fun phoneFill(): Int {
+        val base = Th.panel()
+        return if (tablet) base
+        else Color.argb(max(Color.alpha(base), 0xF6), Color.red(base), Color.green(base), Color.blue(base))
+    }
+
     private fun buildStartPanel() {
         startPanel = ll(true).apply {
-            // HP: panel dibuat lebih pekat agar ikon/widget di belakangnya tidak mengganggu teks
-            val base = Th.panel()
-            val fill = if (tablet) base
-            else Color.argb(max(Color.alpha(base), 0xEC), Color.red(base), Color.green(base), Color.blue(base))
-            background = rounded(fill, dpf(if (tablet) 12f else 22f), Th.p.stroke, dp(1))
+            background = rounded(phoneFill(), dpf(if (tablet) 12f else 22f), Th.p.stroke, dp(1))
             clipToOutline = true
             elevation = dpf(18f)
             visibility = View.GONE
@@ -600,7 +603,7 @@ class MainActivity : Activity() {
         inner.addView(cal, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(8) })
 
         calPanel = ScrollView(this).apply {
-            background = rounded(Th.panel(), dpf(12f), Th.p.stroke, dp(1))
+            background = rounded(phoneFill(), dpf(if (tablet) 12f else 22f), Th.p.stroke, dp(1))
             clipToOutline = true
             elevation = dpf(18f)
             visibility = View.GONE
@@ -612,7 +615,7 @@ class MainActivity : Activity() {
 
     private fun buildQsPanel() {
         qsPanel = ll(true).apply {
-            background = rounded(Th.panel(), dpf(12f), Th.p.stroke, dp(1))
+            background = rounded(phoneFill(), dpf(if (tablet) 12f else 22f), Th.p.stroke, dp(1))
             setPadding(dp(16), dp(16), dp(16), dp(10))
             clipToOutline = true
             elevation = dpf(18f)
@@ -1069,8 +1072,15 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
             setShadowLayer(5f, 0f, 1f, 0xCC000000.toInt())
             setPadding(0, dp(4), 0, 0)
+            if (!tablet) {
+                // HP: label diberi latar gelap transparan agar terbaca di wallpaper terang
+                background = rounded(0x77000000, dpf(10f))
+                setPadding(dp(7), dp(2), dp(7), dp(2))
+                maxWidth = dp(sizeDp + 38)
+            }
         }
-        v.addView(t, LinearLayout.LayoutParams(MATCH, WRAP))
+        v.addView(t, if (tablet) LinearLayout.LayoutParams(MATCH, WRAP)
+        else LinearLayout.LayoutParams(WRAP, WRAP).apply { topMargin = dp(4) })
         v.setOnClickListener { launch(app) }
         v.setOnLongClickListener {
             showAppMenu(v, app)
@@ -1451,7 +1461,7 @@ class MainActivity : Activity() {
         panelView(panel)?.let { hidePanel(it) }
         panel = id
         // HP: redupkan desktop saat Start terbuka supaya panel lebih menonjol
-        scrim.setBackgroundColor(if (!tablet && id == P_START) 0x59000000 else Color.TRANSPARENT)
+        scrim.setBackgroundColor(if (!tablet && id != P_NONE) 0x59000000 else Color.TRANSPARENT)
         scrim.visibility = if (id == P_NONE) View.GONE else View.VISIBLE
         panelView(id)?.let { showPanel(it) }
         startPill.visibility = if (id == P_START) View.VISIBLE else View.INVISIBLE
