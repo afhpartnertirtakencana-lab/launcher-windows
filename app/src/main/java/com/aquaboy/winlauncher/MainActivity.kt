@@ -1355,6 +1355,7 @@ class MainActivity : Activity() {
         m.add(0, 3, 0, if (Th.dark) "Beralih ke mode terang" else "Beralih ke mode gelap")
         m.add(0, 4, 0, "Personalisasi")
         m.add(0, 6, 0, "Tambah widget…")
+        m.add(0, 7, 0, "Rapikan widget")
         m.add(0, 5, 0, "Segarkan")
         pop.setOnMenuItemClickListener { item ->
             try {
@@ -1368,6 +1369,7 @@ class MainActivity : Activity() {
                     3 -> toggleDark()
                     4 -> openOwnWindow(SettingsActivity::class.java) { putExtra(SettingsActivity.EXTRA_PAGE, "personalize") }
                     6 -> widgetLayer?.showPicker()
+                    7 -> widgetLayer?.arrange()
                     5 -> {
                         loadApps()
                         refreshAll()

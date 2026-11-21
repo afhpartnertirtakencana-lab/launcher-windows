@@ -207,16 +207,64 @@ internal class WidgetLayer(
 
     private fun add(t: WType) {
         if (!enabled()) prefs.edit().putBoolean("widgets_show", true).apply()
-        val (wDp, hDp) = WStore.dims(1)
         val deskWdp = (desktop.width / act.resources.displayMetrics.density).toInt()
         val deskHdp = (desktop.height / act.resources.displayMetrics.density).toInt()
-        val per = max(1, (deskHdp - 12) / (hDp + 12))
-        val idx = items.size
-        val x = max(0, deskWdp - wDp - 16 - (idx / per) * (wDp + 12))
-        val y = 12 + (idx % per) * (hDp + 12)
-        items.add(WItem(System.currentTimeMillis(), t, x, y, wDp, hDp))
+        if (isPhone()) {
+            // HP: ukuran kecil (dua widget muat sebaris), diletakkan di ruang kosong mulai dari bawah.
+            val (wDp, hDp) = WStore.dims(0)
+            val (x, y) = freeSpot(wDp, hDp, deskWdp, deskHdp)
+            items.add(WItem(System.currentTimeMillis(), t, x, y, wDp, hDp))
+        } else {
+            val (wDp, hDp) = WStore.dims(1)
+            val per = max(1, (deskHdp - 12) / (hDp + 12))
+            val idx = items.size
+            val x = max(0, deskWdp - wDp - 16 - (idx / per) * (wDp + 12))
+            val y = 12 + (idx % per) * (hDp + 12)
+            items.add(WItem(System.currentTimeMillis(), t, x, y, wDp, hDp))
+        }
         WStore.save(prefs, items)
         relayout()
+    }
+
+    private fun isPhone(): Boolean = act.resources.configuration.smallestScreenWidthDp < 600
+
+    /** Cari ruang kosong (dp) untuk widget baru: dari kanan-bawah ke kiri lalu ke atas, tanpa menimpa widget lain. */
+    private fun freeSpot(wDp: Int, hDp: Int, deskW: Int, deskH: Int): Pair<Int, Int> {
+        val gap = 8
+        var y = deskH - hDp - gap
+        while (y >= gap) {
+            var x = deskW - wDp - gap
+            while (x >= gap) {
+                val hit = items.any {
+                    x < it.x + it.w + gap && x + wDp + gap > it.x &&
+                        y < it.y + it.h + gap && y + hDp + gap > it.y
+                }
+                if (!hit) return x to y
+                x -= 6
+            }
+            y -= 6
+        }
+        return gap to gap
+    }
+
+    /** Susun ulang semua widget ke ruang kosong dari bawah, supaya tidak saling menimpa. */
+    fun arrange() {
+        val deskWdp = (desktop.width / act.resources.displayMetrics.density).toInt()
+        val deskHdp = (desktop.height / act.resources.displayMetrics.density).toInt()
+        if (deskWdp <= 0 || deskHdp <= 0) return
+        val old = ArrayList(items)
+        items.clear()
+        for (w in old) {
+            w.w = min(w.w, max(WStore.MIN_W, deskWdp - 16))
+            w.h = min(w.h, max(WStore.MIN_H, deskHdp - 16))
+            val (x, y) = freeSpot(w.w, w.h, deskWdp, deskHdp)
+            w.x = x
+            w.y = y
+            items.add(w)
+        }
+        WStore.save(prefs, items)
+        relayout()
+        Toast.makeText(act, "Widget dirapikan", Toast.LENGTH_SHORT).show()
     }
 
     private fun attachGestures(v: View, item: WItem) {
