@@ -411,6 +411,17 @@ class MainActivity : Activity() {
         root.addView(desktop, FrameLayout.LayoutParams(MATCH, MATCH))
         setupDesktopInteractions()
 
+        if (!tablet) {
+            // HP: bayangan tipis di atas layar agar jam dan ikon status terbaca di wallpaper terang
+            val topShade = View(this).apply {
+                background = android.graphics.drawable.GradientDrawable(
+                    android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
+                    intArrayOf(0x66000000, 0x00000000)
+                )
+            }
+            root.addView(topShade, FrameLayout.LayoutParams(MATCH, dp(64)))
+        }
+
         scrim = View(this).apply {
             visibility = View.GONE
             setOnClickListener { closePanels() }
@@ -483,7 +494,11 @@ class MainActivity : Activity() {
 
     private fun buildStartPanel() {
         startPanel = ll(true).apply {
-            background = rounded(Th.panel(), dpf(if (tablet) 12f else 22f), Th.p.stroke, dp(1))
+            // HP: panel dibuat lebih pekat agar ikon/widget di belakangnya tidak mengganggu teks
+            val base = Th.panel()
+            val fill = if (tablet) base
+            else Color.argb(max(Color.alpha(base), 0xEC), Color.red(base), Color.green(base), Color.blue(base))
+            background = rounded(fill, dpf(if (tablet) 12f else 22f), Th.p.stroke, dp(1))
             clipToOutline = true
             elevation = dpf(18f)
             visibility = View.GONE
@@ -1212,7 +1227,7 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams(iconPx, iconPx)
         )
         val t = tv(app.label, if (tablet) 12f else 11.5f).apply {
-            maxLines = 1
+            maxLines = if (tablet) 1 else 2
             ellipsize = TextUtils.TruncateAt.END
             gravity = Gravity.CENTER
             setPadding(0, dp(if (tablet) 6 else 8), 0, 0)
@@ -1435,6 +1450,8 @@ class MainActivity : Activity() {
         }
         panelView(panel)?.let { hidePanel(it) }
         panel = id
+        // HP: redupkan desktop saat Start terbuka supaya panel lebih menonjol
+        scrim.setBackgroundColor(if (!tablet && id == P_START) 0x59000000 else Color.TRANSPARENT)
         scrim.visibility = if (id == P_NONE) View.GONE else View.VISIBLE
         panelView(id)?.let { showPanel(it) }
         startPill.visibility = if (id == P_START) View.VISIBLE else View.INVISIBLE
