@@ -335,6 +335,18 @@ class SettingsActivity : Activity() {
         page("apps", "Aplikasi", GlyphView.Kind.APPS, null) {
             listOf(
                 SLink(GlyphView.Kind.APPS, "Aplikasi terpasang", "${launcherApps().size} aplikasi") { goTo("installed") },
+                SHeader("Badge notifikasi"),
+                SToggle(GlyphView.Kind.BELL, "Badge di ikon aplikasi", "Angka merah di ikon aplikasi yang punya notifikasi", "badges", true),
+                SLink(GlyphView.Kind.PRIVACY, "Izinkan akses notifikasi", "Wajib agar badge muncul. Hanya jumlahnya yang dihitung; isi notifikasi tidak dibaca") {
+                    startIntent(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                },
+                SInfo("Android 13+", "Jika tombolnya abu-abu: Info aplikasi > titik tiga > Izinkan setelan terbatas"),
+                SHeader("Jendela mengambang"),
+                SToggle(GlyphView.Kind.APPS, "Buka semua aplikasi dalam jendela", "Aplikasi dibuka sebagai jendela yang bisa digeser, bukan layar penuh", "freeform", false),
+                SLink(GlyphView.Kind.SYSTEM, "Aktifkan jendela freeform", "Opsi pengembang > Aktifkan jendela freeform, lalu mulai ulang tablet") {
+                    startSys("android.settings.APPLICATION_DEVELOPMENT_SETTINGS")
+                },
+                SHeader("Daftar aplikasi"),
                 SLink(GlyphView.Kind.APPS, "Aplikasi tersembunyi", "${loadKeys("hidden").size} disembunyikan dari Start dan pencarian") { goTo("hiddenApps") },
                 sys(GlyphView.Kind.CHECK, "Aplikasi default", "Peramban, telepon, SMS, dan lainnya", "android.settings.MANAGE_DEFAULT_APPS_SETTINGS", "android.settings.SETTINGS"),
                 sys(GlyphView.Kind.HOME, "Launcher bawaan", "Pilih aplikasi layar beranda", "android.settings.HOME_SETTINGS"),

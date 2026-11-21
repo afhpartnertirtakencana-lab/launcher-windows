@@ -1,6 +1,7 @@
 package com.aquaboy.winlauncher
 
 import android.app.Activity
+import android.app.ActivityOptions
 import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.ClipData
@@ -14,6 +15,7 @@ import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.Typeface
 import android.media.AudioManager
@@ -219,6 +221,10 @@ class MainActivity : Activity() {
         })
         registerNet()
         updateClock()
+        Badges.onChange = {
+            handler.removeCallbacks(badgeRefresh)
+            handler.postDelayed(badgeRefresh, 400)
+        }
         // Penerima pemasangan hanya aktif saat launcher terlihat. Kalau ada aplikasi
         // dipasang/dihapus saat launcher di latar belakang, daftar dimuat ulang di sini.
         if (appListChanged()) {
@@ -248,6 +254,8 @@ class MainActivity : Activity() {
         try { unregisterReceiver(pkgReceiver) } catch (e: Exception) { }
         unregisterNet()
         handler.removeCallbacks(reloadApps)
+        handler.removeCallbacks(badgeRefresh)
+        Badges.onChange = null
     }
 
     override fun onResume() {
@@ -926,24 +934,73 @@ class MainActivity : Activity() {
             pm.defaultActivityIcon
         }
         d.setBounds(0, 0, size, size)
-        d.draw(Canvas(bmp))
+        val cv = Canvas(bmp)
+        d.draw(cv)
+        val n = if (pb("badges", true) && app.pkg != packageName) Badges.count(app.pkg) else 0
+        if (n > 0) drawBadge(cv, size, n)
         bmp
     }
 
-    private fun launch(app: AppEntry) {
+    /** Lingkaran merah dengan jumlah notifikasi di pojok kanan atas ikon. */
+    private fun drawBadge(cv: Canvas, size: Int, n: Int) {
+        val r = size * 0.21f
+        val cx = size - r - size * 0.02f
+        val cy = r + size * 0.02f
+        val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+        val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFE5484D.toInt() }
+        cv.drawCircle(cx, cy, r + size * 0.03f, ring)
+        cv.drawCircle(cx, cy, r, fill)
+        val txt = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            typeface = Typeface.DEFAULT_BOLD
+            textAlign = Paint.Align.CENTER
+            textSize = r * 1.3f
+        }
+        val label = if (n > 9) "9+" else n.toString()
+        cv.drawText(label, cx, cy - (txt.descent() + txt.ascent()) / 2f, txt)
+    }
+
+    private val badgeRefresh = Runnable {
+        icons.clear()
+        renderTaskbar()
+        renderDesktop()
+        if (panel != P_START) renderStart()
+    }
+
+    private var freeCount = 0
+
+    /** Opsi jendela mengambang (butuh "Aktifkan jendela freeform" di Opsi pengembang). */
+    private fun windowOptions(): android.os.Bundle? = try {
+        val dm = resources.displayMetrics
+        val w = (dm.widthPixels * 0.62f).toInt()
+        val h = (dm.heightPixels * 0.70f).toInt()
+        val n = freeCount++ % 5
+        val l = dp(40) + n * dp(36)
+        val t = dp(40) + n * dp(30)
+        ActivityOptions.makeBasic().setLaunchBounds(Rect(l, t, l + w, t + h)).toBundle()
+    } catch (e: Throwable) {
+        null
+    }
+
+    private fun launch(app: AppEntry, windowed: Boolean = false) {
+        val asWindow = windowed || pb("freeform", false)
         try {
             if (app.pkg == packageName) {
                 // Pengaturan Win / File Explorer: buka langsung di task launcher.
-                startActivity(
-                    Intent().setClassName(this, app.cn.className)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
-                )
+                val oi = Intent().setClassName(this, app.cn.className)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+                if (asWindow) startActivity(oi, windowOptions()) else startActivity(oi)
             } else {
                 val i = Intent(Intent.ACTION_MAIN)
                     .addCategory(Intent.CATEGORY_LAUNCHER)
                     .setComponent(app.cn)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
-                startActivity(i)
+                if (asWindow) {
+                    i.addFlags(Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
+                    startActivity(i, windowOptions())
+                } else {
+                    startActivity(i)
+                }
             }
         } catch (e: Throwable) {
             val why = (e.javaClass.simpleName + " " + (e.message ?: "")).take(140)
@@ -1590,6 +1647,7 @@ class MainActivity : Activity() {
         m.add(0, 1, 0, if (app.key in startPins) "Lepas dari Start" else "Sematkan ke Start")
         m.add(0, 2, 0, if (app.key in taskbarPins) "Lepas dari taskbar" else "Sematkan ke taskbar")
         m.add(0, 3, 0, if (app.key in desktopPins) "Hapus dari desktop" else "Tambahkan ke desktop")
+        m.add(0, 9, 0, "Buka dalam jendela")
         if (app.key in recents && app.pkg != packageName) m.add(0, 6, 0, "Hapus dari daftar terbuka")
         if (app.pkg != packageName) {
             m.add(0, 7, 0, if (app.key in load("hidden")) "Tampilkan di daftar aplikasi" else "Sembunyikan dari daftar aplikasi")
@@ -1602,6 +1660,7 @@ class MainActivity : Activity() {
                     1 -> togglePin(startPins, app.key, "start")
                     2 -> togglePin(taskbarPins, app.key, "taskbar")
                     3 -> togglePin(desktopPins, app.key, "desktop")
+                    9 -> launch(app, true)
                     7 -> {
                         val h = load("hidden")
                         val nowHidden = app.key !in h
