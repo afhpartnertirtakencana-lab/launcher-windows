@@ -255,6 +255,8 @@ class MainActivity : Activity() {
         purgeClosedWindows()
         updateClock()
         applyImmersive()
+        ensureDesktopFilled()
+        handler.postDelayed({ ensureDesktopFilled() }, 400)
         Crash.take(this)?.let { showCrashReport(it) }
     }
 
@@ -372,7 +374,10 @@ class MainActivity : Activity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) applyImmersive()
+        if (hasFocus) {
+            applyImmersive()
+            ensureDesktopFilled()
+        }
     }
 
     // ---------- window ----------
@@ -488,7 +493,8 @@ class MainActivity : Activity() {
             true
         }
         desktop.addOnLayoutChangeListener { _, _, t, _, b, _, oldT, _, oldB ->
-            if (b - t != oldB - oldT) renderDesktop()
+            // Jangan ubah isi desktop di tengah proses layout: tunda sampai selesai.
+            if (b - t != oldB - oldT) scheduleDesktopRender()
         }
     }
 
@@ -1008,10 +1014,24 @@ class MainActivity : Activity() {
     // ---------- desktop ----------
     internal fun renderDesktopNow() = renderDesktop()
 
+    private val desktopRender = Runnable { renderDesktop() }
+
+    private fun scheduleDesktopRender(delayMs: Long = 60) {
+        handler.removeCallbacks(desktopRender)
+        handler.postDelayed(desktopRender, delayMs)
+    }
+
+    /** Setelah kembali dari aplikasi lain: kalau desktop kosong padahal seharusnya berisi, gambar ulang. */
+    private fun ensureDesktopFilled() {
+        if (!::desktop.isInitialized) return
+        if (desktop.height > 0 && desktop.childCount == 0) scheduleDesktopRender(0)
+    }
+
     private fun renderDesktop() {
         if (!::desktop.isInitialized) return
-        desktop.removeAllViews()
+        // Tinggi belum valid (mis. saat transisi): biarkan isi lama, jangan dikosongkan.
         if (desktop.height <= 0) return
+        desktop.removeAllViews()
         if (widgetLayer == null) widgetLayer = WidgetLayer(this, desktop, prefs)
         try {
             renderDeskIcons()
