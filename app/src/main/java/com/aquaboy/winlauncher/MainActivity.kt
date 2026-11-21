@@ -37,7 +37,9 @@ import android.text.TextWatcher
 import android.text.format.DateFormat
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
+import android.view.ViewConfiguration
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowInsetsController
@@ -61,6 +63,7 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
@@ -1074,35 +1077,97 @@ class MainActivity : Activity() {
         }
     }
 
+    // Posisi ikon desktop: kolom/baris sel. Tersimpan di "deskpos" (baris "kunci|kolom|baris").
+    private val deskCells = HashMap<String, Pair<Int, Int>>()
+    private var deskCellW = 1
+    private var deskCellH = 1
+    private var deskRows = 1
+
+    private fun loadDeskPos(): Map<String, Pair<Int, Int>> {
+        val out = HashMap<String, Pair<Int, Int>>()
+        for (line in (prefs.getString("deskpos", "") ?: "").split("\n")) {
+            val p = line.split("|")
+            if (p.size != 3) continue
+            val c = p[1].toIntOrNull() ?: continue
+            val r = p[2].toIntOrNull() ?: continue
+            out[p[0]] = Pair(c, r)
+        }
+        return out
+    }
+
+    private fun saveDeskPos() {
+        val pins = desktopPins.toSet()
+        val text = deskCells.filterKeys { it in pins }.entries.joinToString("\n") { "${it.key}|${it.value.first}|${it.value.second}" }
+        prefs.edit().putString("deskpos", text).apply()
+    }
+
+    private fun deskCellFree(c: Int, r: Int, strict: Boolean): Boolean {
+        if (c < 0 || r < 0 || r >= deskRows) return false
+        if (strict && c >= max(1, desktop.width / deskCellW)) return false
+        val inset = dp(6)
+        val rect = Rect(c * deskCellW + inset, r * deskCellH + inset, (c + 1) * deskCellW - inset, (r + 1) * deskCellH - inset)
+        return (widgetLayer?.rects() ?: emptyList()).none { Rect.intersects(it, rect) }
+    }
+
     private fun renderDeskIcons() {
         if (!pb("desk_show", true)) return
         val h = desktop.height
         if (h <= 0) return
         val big = deskIconDp()
-        val cellW = dp(big + 44)
-        val cellH = dp(big + 52)
-        val rows = max(1, h / cellH)
-        // Ikon mengalir mengitari widget, jadi tidak pernah tertutup.
-        val blocked = widgetLayer?.rects() ?: emptyList()
-        val inset = dp(6)
+        deskCellW = dp(big + 44)
+        deskCellH = dp(big + 52)
+        deskRows = max(1, h / deskCellH)
+        val pins = desktopPins.mapNotNull { byKey[it] }
+        val saved = loadDeskPos()
+        val used = HashSet<Pair<Int, Int>>()
+        deskCells.clear()
+        // 1) ikon yang sudah punya posisi pilihan pengguna
+        for (app in pins) {
+            val p = saved[app.key] ?: continue
+            if (p !in used && deskCellFree(p.first, p.second, true)) {
+                deskCells[app.key] = p
+                used.add(p)
+            }
+        }
+        // 2) sisanya mengalir mengitari widget dan ikon lain, jadi tidak pernah tertutup
         var col = 0
         var row = 0
-        val r = Rect()
-        for (app in desktopPins.mapNotNull { byKey[it] }) {
+        for (app in pins) {
+            if (app.key in deskCells) continue
             var guard = 0
             while (guard++ < 600) {
-                r.set(col * cellW + inset, row * cellH + inset, (col + 1) * cellW - inset, (row + 1) * cellH - inset)
-                if (blocked.none { Rect.intersects(it, r) }) break
+                if (Pair(col, row) !in used && deskCellFree(col, row, false)) break
                 row++
-                if (row >= rows) { row = 0; col++ }
+                if (row >= deskRows) { row = 0; col++ }
             }
-            val lp = FrameLayout.LayoutParams(cellW, cellH)
-            lp.leftMargin = col * cellW
-            lp.topMargin = row * cellH
-            desktop.addView(desktopIcon(app, big), lp)
-            row++
-            if (row >= rows) { row = 0; col++ }
+            val p = Pair(col, row)
+            deskCells[app.key] = p
+            used.add(p)
         }
+        for (app in pins) {
+            val p = deskCells[app.key] ?: continue
+            val lp = FrameLayout.LayoutParams(deskCellW, deskCellH)
+            lp.leftMargin = p.first * deskCellW
+            lp.topMargin = p.second * deskCellH
+            desktop.addView(desktopIcon(app, big), lp)
+        }
+    }
+
+    /** Ikon dilepas setelah diseret: pindah ke sel baru (tukar bila terisi), atau kembali bila tidak muat. */
+    private fun dropDeskIcon(v: View, app: AppEntry) {
+        val lp = v.layoutParams as FrameLayout.LayoutParams
+        val cx = lp.leftMargin + v.width / 2f + v.translationX
+        val cy = lp.topMargin + v.height / 2f + v.translationY
+        val c = Math.floor((cx / deskCellW).toDouble()).toInt()
+        val r = Math.floor((cy / deskCellH).toDouble()).toInt()
+        val old = deskCells[app.key]
+        if (old != null && deskCellFree(c, r, true) && Pair(c, r) != old) {
+            val other = deskCells.entries.firstOrNull { it.key != app.key && it.value == Pair(c, r) }?.key
+            if (other != null) deskCells[other] = old
+            deskCells[app.key] = Pair(c, r)
+            saveDeskPos()
+        }
+        desktop.post { renderDesktop() }
     }
 
     private fun desktopIcon(app: AppEntry, sizeDp: Int): View {
@@ -1128,8 +1193,68 @@ class MainActivity : Activity() {
         }
         v.addView(t, LinearLayout.LayoutParams(WRAP, WRAP).apply { topMargin = dp(4) })
         v.setOnClickListener { launch(app) }
-        v.setOnLongClickListener {
-            showAppMenu(v, app)
+        // Ketuk = buka. Tahan lalu geser = pindahkan. Tahan tanpa geser = menu.
+        val slop = ViewConfiguration.get(this).scaledTouchSlop
+        var downX = 0f
+        var downY = 0f
+        var longFired = false
+        var dragging = false
+        val longPress = Runnable {
+            longFired = true
+            v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            v.alpha = 0.85f
+            v.elevation = dpf(12f)
+            v.bringToFront()
+        }
+        fun reset() {
+            v.alpha = 1f
+            v.elevation = 0f
+            v.translationX = 0f
+            v.translationY = 0f
+        }
+        v.setOnTouchListener { _, e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = e.rawX
+                    downY = e.rawY
+                    longFired = false
+                    dragging = false
+                    handler.postDelayed(longPress, 380)
+                    v.parent?.requestDisallowInterceptTouchEvent(true)
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = e.rawX - downX
+                    val dy = e.rawY - downY
+                    if (!longFired) {
+                        if (abs(dx) > slop || abs(dy) > slop) handler.removeCallbacks(longPress)
+                    } else {
+                        if (abs(dx) > slop || abs(dy) > slop) dragging = true
+                        if (dragging) {
+                            v.translationX = dx
+                            v.translationY = dy
+                        }
+                    }
+                }
+                MotionEvent.ACTION_UP -> {
+                    handler.removeCallbacks(longPress)
+                    when {
+                        dragging -> dropDeskIcon(v, app)
+                        longFired -> {
+                            reset()
+                            showAppMenu(v, app)
+                        }
+                        abs(e.rawX - downX) <= slop && abs(e.rawY - downY) <= slop -> v.performClick()
+                    }
+                    dragging = false
+                    longFired = false
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    handler.removeCallbacks(longPress)
+                    reset()
+                    dragging = false
+                    longFired = false
+                }
+            }
             true
         }
         return v
@@ -1417,6 +1542,7 @@ class MainActivity : Activity() {
         m.add(0, 4, 0, "Personalisasi")
         m.add(0, 6, 0, "Tambah widget…")
         m.add(0, 7, 0, "Rapikan widget")
+        m.add(0, 8, 0, "Susun ikon otomatis")
         m.add(0, 5, 0, "Segarkan")
         pop.setOnMenuItemClickListener { item ->
             try {
@@ -1431,6 +1557,11 @@ class MainActivity : Activity() {
                     4 -> openOwnWindow(SettingsActivity::class.java) { putExtra(SettingsActivity.EXTRA_PAGE, "personalize") }
                     6 -> widgetLayer?.showPicker()
                     7 -> widgetLayer?.arrange()
+                    8 -> {
+                        prefs.edit().remove("deskpos").apply()
+                        renderDesktop()
+                        Toast.makeText(this, "Ikon desktop disusun otomatis", Toast.LENGTH_SHORT).show()
+                    }
                     5 -> {
                         loadApps()
                         refreshAll()

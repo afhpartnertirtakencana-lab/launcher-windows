@@ -29,6 +29,7 @@ import android.text.TextWatcher
 import android.text.format.DateFormat
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.View
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -136,6 +137,8 @@ class SettingsActivity : Activity() {
         super.onSaveInstanceState(outState)
         outState.putString("page", current)
     }
+
+    override fun dispatchKeyEvent(e: KeyEvent): Boolean = handleShortcut(e) || super.dispatchKeyEvent(e)
 
     override fun onBackPressed() {
         when {

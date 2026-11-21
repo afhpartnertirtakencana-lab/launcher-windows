@@ -330,6 +330,8 @@ class FilesActivity : Activity() {
         }
     }
 
+    override fun dispatchKeyEvent(e: KeyEvent): Boolean = handleShortcut(e) || super.dispatchKeyEvent(e)
+
     override fun onBackPressed() {
         when {
             drawerOpen -> closeDrawer()
