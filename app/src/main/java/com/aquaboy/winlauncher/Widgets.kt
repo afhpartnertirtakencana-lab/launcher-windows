@@ -14,6 +14,7 @@ import android.os.BatteryManager
 import android.os.Environment
 import android.os.StatFs
 import android.text.TextUtils
+import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -462,13 +463,22 @@ internal class WidgetLayer(
         val c = act.ll(false, Gravity.CENTER_VERTICAL).apply {
             background = act.rounded(Th.panel(), act.dpf(18f), Th.p.stroke, act.dp(1))
             elevation = act.dpf(6f)
-            setPadding(act.dp(14), act.dp(10), act.dp(14), act.dp(10))
+            setPadding(act.dp(if (size == 0) 10 else 14), act.dp(10), act.dp(if (size == 0) 10 else 14), act.dp(10))
         }
         val ring = RingView(act)
         val rs = intArrayOf(56, 76, 112)[size]
-        c.addView(ring, LinearLayout.LayoutParams(act.dp(rs), act.dp(rs)).apply { rightMargin = act.dp(12) })
+        c.addView(ring, LinearLayout.LayoutParams(act.dp(rs), act.dp(rs)).apply { rightMargin = act.dp(if (size == 0) 8 else 12) })
         val col = act.ll(true, Gravity.CENTER_VERTICAL)
-        val head = act.tv(title, floatArrayOf(12f, 14f, 17f)[size], Th.p.text, true)
+        val headSp = floatArrayOf(12f, 14f, 17f)[size]
+        val head = act.tv(title, headSp, Th.p.text, true).apply {
+            // Judul selalu satu baris: huruf mengecil otomatis bila ruangnya sempit (mis. "Penyimpanan").
+            maxLines = 1
+            if (android.os.Build.VERSION.SDK_INT >= 26) {
+                setAutoSizeTextTypeUniformWithConfiguration(9, headSp.toInt(), 1, TypedValue.COMPLEX_UNIT_SP)
+            } else if (title.length > 9 && size == 0) {
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, headSp - 2f)
+            }
+        }
         val sub = act.tv("", floatArrayOf(11f, 12f, 14f)[size], Th.p.dim).apply {
             maxLines = 3
             ellipsize = TextUtils.TruncateAt.END
