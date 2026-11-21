@@ -501,7 +501,7 @@ class MainActivity : Activity() {
 
     private fun buildStartPanel() {
         startPanel = ll(true).apply {
-            background = rounded(phoneFill(), dpf(if (tablet) 12f else 22f), Th.p.stroke, dp(1))
+            background = rounded(phoneFill(), dpf(26f), Th.p.stroke, dp(1))
             clipToOutline = true
             elevation = dpf(18f)
             visibility = View.GONE
@@ -536,7 +536,7 @@ class MainActivity : Activity() {
         }
 
         val searchBox = ll(false, Gravity.CENTER_VERTICAL).apply {
-            background = rounded(Th.p.input, dpf(if (tablet) 20f else 26f), Th.p.stroke, dp(1))
+            background = rounded(Th.p.input, dpf(26f), Th.p.stroke, dp(1))
             setPadding(dp(if (tablet) 14 else 18), 0, dp(12), 0)
             addView(icon(GlyphView.Kind.SEARCH, Th.p.dim), LinearLayout.LayoutParams(dp(if (tablet) 18 else 20), dp(if (tablet) 18 else 20)))
             addView(searchInput, LinearLayout.LayoutParams(0, MATCH, 1f))
@@ -558,12 +558,12 @@ class MainActivity : Activity() {
 
         val name = Profile.name(this)
         val footer = ll(false, Gravity.CENTER_VERTICAL).apply {
-            setBackgroundColor(if (Th.dark) 0x33000000 else 0x14000000)
+            setBackgroundColor(Th.withAlpha(Th.accent, 0x1C))
             setPadding(dp(20), 0, dp(12), 0)
         }
         val userBtn = ll(false, Gravity.CENTER_VERTICAL).apply {
-            background = ripple(dpf(8f))
-            setPadding(dp(6), dp(6), dp(12), dp(6))
+            background = ripple(dpf(22f))
+            setPadding(dp(6), dp(6), dp(14), dp(6))
             setOnClickListener { openSettingsApp() }
         }
         val avatar = Profile.avatar(this, 32, 13f)
@@ -587,7 +587,7 @@ class MainActivity : Activity() {
 
     private fun footerIcon(kind: GlyphView.Kind, onClick: (View) -> Unit): FrameLayout =
         FrameLayout(this).apply {
-            background = ripple(dpf(8f))
+            background = ripple(dpf(20f))
             addView(icon(kind), FrameLayout.LayoutParams(dp(20), dp(20), Gravity.CENTER))
             setOnClickListener { onClick(it) }
         }
@@ -603,7 +603,7 @@ class MainActivity : Activity() {
         inner.addView(cal, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(8) })
 
         calPanel = ScrollView(this).apply {
-            background = rounded(phoneFill(), dpf(if (tablet) 12f else 22f), Th.p.stroke, dp(1))
+            background = rounded(phoneFill(), dpf(26f), Th.p.stroke, dp(1))
             clipToOutline = true
             elevation = dpf(18f)
             visibility = View.GONE
@@ -615,7 +615,7 @@ class MainActivity : Activity() {
 
     private fun buildQsPanel() {
         qsPanel = ll(true).apply {
-            background = rounded(phoneFill(), dpf(if (tablet) 12f else 22f), Th.p.stroke, dp(1))
+            background = rounded(phoneFill(), dpf(26f), Th.p.stroke, dp(1))
             setPadding(dp(16), dp(16), dp(16), dp(10))
             clipToOutline = true
             elevation = dpf(18f)
@@ -1070,17 +1070,14 @@ class MainActivity : Activity() {
             maxLines = 2
             ellipsize = TextUtils.TruncateAt.END
             gravity = Gravity.CENTER
-            setShadowLayer(5f, 0f, 1f, 0xCC000000.toInt())
-            setPadding(0, dp(4), 0, 0)
-            if (!tablet) {
-                // HP: label diberi latar gelap transparan agar terbaca di wallpaper terang
-                background = rounded(0x77000000, dpf(10f))
-                setPadding(dp(7), dp(2), dp(7), dp(2))
-                maxWidth = dp(sizeDp + 38)
-            }
+            setShadowLayer(3f, 0f, 1f, 0x66000000)
+            // Label diberi latar azure transparan (bukan hitam) agar terbaca di wallpaper terang maupun gelap.
+            val az = Th.blend(Th.ACCENTS[Th.accentIdx].light, 0xFF06214D.toInt(), 0.25f)
+            background = rounded(Th.withAlpha(az, 0xB8), dpf(12f), 0x55FFFFFF, dp(1))
+            setPadding(dp(8), dp(2), dp(8), dp(2))
+            maxWidth = dp(sizeDp + 38)
         }
-        v.addView(t, if (tablet) LinearLayout.LayoutParams(MATCH, WRAP)
-        else LinearLayout.LayoutParams(WRAP, WRAP).apply { topMargin = dp(4) })
+        v.addView(t, LinearLayout.LayoutParams(WRAP, WRAP).apply { topMargin = dp(4) })
         v.setOnClickListener { launch(app) }
         v.setOnLongClickListener {
             showAppMenu(v, app)
@@ -1229,7 +1226,7 @@ class MainActivity : Activity() {
     private fun tile(app: AppEntry): View {
         val v = ll(true, Gravity.CENTER_HORIZONTAL).apply {
             if (tablet) setPadding(dp(4), dp(10), dp(4), dp(8)) else setPadding(dp(2), dp(12), dp(2), dp(10))
-            background = ripple(dpf(if (tablet) 8f else 14f))
+            background = ripple(dpf(16f))
         }
         val iconPx = dp(if (tablet) 38 else 46)
         v.addView(
@@ -1279,7 +1276,7 @@ class MainActivity : Activity() {
     private fun listRow(app: AppEntry): View {
         val v = ll(false, Gravity.CENTER_VERTICAL).apply {
             setPadding(dp(16), 0, dp(16), 0)
-            background = ripple(dpf(if (tablet) 8f else 12f))
+            background = ripple(dpf(16f))
             layoutParams = LinearLayout.LayoutParams(MATCH, dp(if (tablet) 44 else 54)).apply { setMargins(dp(8), 0, dp(8), 0) }
         }
         val rowIcon = dp(if (tablet) 26 else 34)
