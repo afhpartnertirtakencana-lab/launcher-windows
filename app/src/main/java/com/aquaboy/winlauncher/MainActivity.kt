@@ -37,6 +37,7 @@ import android.text.TextWatcher
 import android.text.format.DateFormat
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowInsetsController
@@ -91,7 +92,8 @@ class MainActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
     private val audio by lazy { getSystemService(Context.AUDIO_SERVICE) as AudioManager }
 
-    private var apps: List<AppEntry> = emptyList()
+    private var apps: List<AppEntry> = emptyList()      // yang tampil di Start dan pencarian
+    private var allApps: List<AppEntry> = emptyList()   // semua, termasuk yang disembunyikan
     private var byKey: Map<String, AppEntry> = emptyMap()
     private val icons = HashMap<String, Bitmap>()
 
@@ -263,6 +265,31 @@ class MainActivity : Activity() {
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
         closePanels()
+    }
+
+    /**
+     * Pintasan keyboard (untuk tablet dengan keyboard/mouse). Memakai Alt, bukan tombol Windows,
+     * karena Android sering memakai Win+huruf untuk dirinya sendiri.
+     *   Alt+E File Explorer, Alt+I Pengaturan, Alt+D desktop (tutup panel),
+     *   Alt+S atau Alt+Spasi cari di Start, Ctrl+Esc buka/tutup Start.
+     */
+    override fun dispatchKeyEvent(e: KeyEvent): Boolean {
+        if (e.action == KeyEvent.ACTION_DOWN && e.repeatCount == 0) {
+            val k = e.keyCode
+            if (e.isCtrlPressed && k == KeyEvent.KEYCODE_ESCAPE) {
+                if (panel == P_START) closePanels() else openStart(false)
+                return true
+            }
+            if (e.isAltPressed && !e.isCtrlPressed) {
+                when (k) {
+                    KeyEvent.KEYCODE_E -> { closePanels(); openOwnWindow(FilesActivity::class.java); return true }
+                    KeyEvent.KEYCODE_I -> { openSettingsApp(); return true }
+                    KeyEvent.KEYCODE_D -> { closePanels(); return true }
+                    KeyEvent.KEYCODE_S, KeyEvent.KEYCODE_SPACE -> { openStart(true); return true }
+                }
+            }
+        }
+        return super.dispatchKeyEvent(e)
     }
 
     override fun onBackPressed() {
@@ -826,8 +853,10 @@ class MainActivity : Activity() {
             val label = ri.loadLabel(pm).toString()
             out.add(AppEntry(label, ai.packageName, ComponentName(ai.packageName, ai.name)))
         }
-        apps = out.sortedBy { it.label.lowercase() }
-        byKey = apps.associateBy { it.key }
+        allApps = out.sortedBy { it.label.lowercase() }
+        byKey = allApps.associateBy { it.key }
+        val hidden = load("hidden").toSet()
+        apps = allApps.filter { it.key !in hidden || it.pkg == packageName }
         icons.clear()
         ensureDefaults()
     }
@@ -1329,6 +1358,7 @@ class MainActivity : Activity() {
         m.add(0, 3, 0, if (app.key in desktopPins) "Hapus dari desktop" else "Tambahkan ke desktop")
         if (app.key in recents && app.pkg != packageName) m.add(0, 6, 0, "Hapus dari daftar terbuka")
         if (app.pkg != packageName) {
+            m.add(0, 7, 0, if (app.key in load("hidden")) "Tampilkan di daftar aplikasi" else "Sembunyikan dari daftar aplikasi")
             m.add(0, 4, 0, "Info aplikasi")
             m.add(0, 5, 0, "Copot pemasangan")
         }
@@ -1338,6 +1368,20 @@ class MainActivity : Activity() {
                     1 -> togglePin(startPins, app.key, "start")
                     2 -> togglePin(taskbarPins, app.key, "taskbar")
                     3 -> togglePin(desktopPins, app.key, "desktop")
+                    7 -> {
+                        val h = load("hidden")
+                        val nowHidden = app.key !in h
+                        if (nowHidden) h.add(app.key) else h.remove(app.key)
+                        save("hidden", h)
+                        loadApps()
+                        refreshAll()
+                        Toast.makeText(
+                            this,
+                            if (nowHidden) "Disembunyikan. Kelola di Pengaturan > Aplikasi > Aplikasi tersembunyi"
+                            else "Ditampilkan lagi",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
                     6 -> {
                         recents.remove(app.key)
                         save("recents", recents)

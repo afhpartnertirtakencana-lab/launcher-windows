@@ -332,6 +332,7 @@ class SettingsActivity : Activity() {
         page("apps", "Aplikasi", GlyphView.Kind.APPS, null) {
             listOf(
                 SLink(GlyphView.Kind.APPS, "Aplikasi terpasang", "${launcherApps().size} aplikasi") { goTo("installed") },
+                SLink(GlyphView.Kind.APPS, "Aplikasi tersembunyi", "${loadKeys("hidden").size} disembunyikan dari Start dan pencarian") { goTo("hiddenApps") },
                 sys(GlyphView.Kind.CHECK, "Aplikasi default", "Peramban, telepon, SMS, dan lainnya", "android.settings.MANAGE_DEFAULT_APPS_SETTINGS", "android.settings.SETTINGS"),
                 sys(GlyphView.Kind.HOME, "Launcher bawaan", "Pilih aplikasi layar beranda", "android.settings.HOME_SETTINGS"),
                 sys(GlyphView.Kind.SYSTEM, "Kelola semua aplikasi", "Izin, penyimpanan, dan paksa berhenti", "android.settings.MANAGE_ALL_APPLICATIONS_SETTINGS"),
@@ -343,6 +344,22 @@ class SettingsActivity : Activity() {
                     }
                 }
             )
+        }
+        page("hiddenApps", "Aplikasi tersembunyi", GlyphView.Kind.APPS, "apps") {
+            val hidden = loadKeys("hidden")
+            val rows = ArrayList<SRow>()
+            rows.add(SHeader("Ketuk aplikasi untuk menyembunyikan atau menampilkannya"))
+            for (a in launcherApps()) {
+                if (a.pkg == packageName) continue
+                val key = a.cn.flattenToString()
+                val isHidden = key in hidden
+                rows.add(SLink(GlyphView.Kind.APPS, a.label, if (isHidden) "Tersembunyi - ketuk untuk menampilkan" else "Tampil - ketuk untuk menyembunyikan") {
+                    val h = loadKeys("hidden")
+                    if (isHidden) h.remove(key) else h.add(key)
+                    saveKeys("hidden", h)
+                })
+            }
+            rows
         }
         page("installed", "Aplikasi terpasang", GlyphView.Kind.APPS, "apps") {
             listOf(SCustom { installedApps() })
