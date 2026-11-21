@@ -496,7 +496,7 @@ class MainActivity : Activity() {
     private fun phoneFill(): Int {
         val base = Th.panel()
         return if (tablet) base
-        else Color.argb(max(Color.alpha(base), 0xF6), Color.red(base), Color.green(base), Color.blue(base))
+        else Color.argb(max(Color.alpha(base), 0xFC), Color.red(base), Color.green(base), Color.blue(base))
     }
 
     private fun buildStartPanel() {
