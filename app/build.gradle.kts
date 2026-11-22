@@ -11,8 +11,8 @@ android {
         applicationId = "com.aquaboy.winlauncher"
         minSdk = 24
         targetSdk = 35
-        versionCode = 27
-        versionName = "2.9.0"
+        versionCode = 28
+        versionName = "2.9.1"
     }
 
     // Kunci tetap supaya setiap build bertanda tangan sama dan bisa dipasang sebagai pembaruan.
