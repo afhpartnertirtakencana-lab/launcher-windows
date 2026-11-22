@@ -225,6 +225,13 @@ class MainActivity : Activity() {
             handler.removeCallbacks(badgeRefresh)
             handler.postDelayed(badgeRefresh, 400)
         }
+        // Notifikasi bisa berubah saat launcher di latar belakang (mis. sedang membuka WhatsApp):
+        // saat kembali, bandingkan dengan yang sedang tergambar dan segarkan bila berbeda.
+        ensureBadgeListener()
+        if (Badges.counts != badgeSnapshot) {
+            handler.removeCallbacks(badgeRefresh)
+            handler.postDelayed(badgeRefresh, 150)
+        }
         // Penerima pemasangan hanya aktif saat launcher terlihat. Kalau ada aplikasi
         // dipasang/dihapus saat launcher di latar belakang, daftar dimuat ulang di sini.
         if (appListChanged()) {
@@ -960,7 +967,23 @@ class MainActivity : Activity() {
         cv.drawText(label, cx, cy - (txt.descent() + txt.ascent()) / 2f, txt)
     }
 
+    private var badgeSnapshot: Map<String, Int> = emptyMap()
+
+    /** Jika akses notifikasi sudah diberikan tetapi layanan belum tersambung, minta sambung ulang. */
+    private fun ensureBadgeListener() {
+        try {
+            val enabled = Settings.Secure.getString(contentResolver, "enabled_notification_listeners") ?: ""
+            if (enabled.contains(packageName) && !Badges.connected) {
+                android.service.notification.NotificationListenerService.requestRebind(
+                    android.content.ComponentName(this, NotifService::class.java)
+                )
+            }
+        } catch (e: Throwable) {
+        }
+    }
+
     private val badgeRefresh = Runnable {
+        badgeSnapshot = Badges.counts
         icons.clear()
         renderTaskbar()
         renderDesktop()

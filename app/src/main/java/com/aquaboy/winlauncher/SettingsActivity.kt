@@ -337,7 +337,8 @@ class SettingsActivity : Activity() {
                 SLink(GlyphView.Kind.APPS, "Aplikasi terpasang", "${launcherApps().size} aplikasi") { goTo("installed") },
                 SHeader("Badge notifikasi"),
                 SToggle(GlyphView.Kind.BELL, "Badge di ikon aplikasi", "Angka merah di ikon aplikasi yang punya notifikasi", "badges", true),
-                SLink(GlyphView.Kind.PRIVACY, "Izinkan akses notifikasi", "Wajib agar badge muncul. Hanya jumlahnya yang dihitung; isi notifikasi tidak dibaca") {
+                SLink(GlyphView.Kind.PRIVACY, "Izinkan akses notifikasi",
+                    (if (Badges.connected) "Status: AKTIF. " else "Status: belum aktif. ") + "Hanya jumlah notifikasi yang dihitung, isinya tidak dibaca") {
                     startIntent(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                 },
                 SInfo("Android 13+", "Jika tombolnya abu-abu: Info aplikasi > titik tiga > Izinkan setelan terbatas"),
