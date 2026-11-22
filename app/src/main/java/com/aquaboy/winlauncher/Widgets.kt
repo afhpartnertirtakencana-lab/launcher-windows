@@ -30,13 +30,24 @@ import kotlin.math.max
 import kotlin.math.min
 
 /** Jenis widget bawaan yang bisa dipasang di desktop. */
-internal enum class WType(val label: String, val desc: String, val glyph: GlyphView.Kind) {
+internal enum class WType(
+    val label: String,
+    val desc: String,
+    val glyph: GlyphView.Kind,
+    val defW: Int = 0,   // ukuran awal khusus (dp); 0 = ikut ukuran standar
+    val defH: Int = 0
+) {
     CLOCK("Jam", "Jam digital dan tanggal", GlyphView.Kind.TIME),
     CALENDAR("Kalender", "Tanggal hari ini", GlyphView.Kind.BELL),
     BATTERY("Baterai", "Level dan status pengisian daya", GlyphView.Kind.BATTERY),
     STORAGE("Penyimpanan", "Pemakaian penyimpanan internal", GlyphView.Kind.DRIVE),
-    MEMORY("Memori", "Pemakaian RAM", GlyphView.Kind.SYSTEM),
-    NOTE("Catatan", "Catatan singkat, ketuk untuk mengubah", GlyphView.Kind.DOC)
+    MEMORY("Memori", "Pemakaian RAM, ketuk untuk membersihkan RAM", GlyphView.Kind.SYSTEM),
+    NOTE("Catatan", "Catatan singkat, ketuk untuk mengubah", GlyphView.Kind.DOC),
+    TOOLS("Pintasan cepat", "Senter, Wi-Fi, Bluetooth, dan volume", GlyphView.Kind.GEAR, 260, 96),
+    MONTH("Kalender bulan", "Kalender satu bulan penuh", GlyphView.Kind.STAR, 260, 200),
+    WORLD("Jam dunia", "WIB, WITA, WIT, Mekkah, dan London", GlyphView.Kind.LANGUAGE, 220, 160),
+    NET("Kecepatan jaringan", "Kecepatan unduh dan unggah", GlyphView.Kind.NET, 200, 110),
+    SEARCH("Pencarian", "Kolom cari cepat ke menu Start", GlyphView.Kind.SEARCH, 260, 80)
 }
 
 internal class WItem(val id: Long, val type: WType, var x: Int, var y: Int, var w: Int, var h: Int) {
@@ -212,11 +223,11 @@ internal class WidgetLayer(
         val deskHdp = (desktop.height / act.resources.displayMetrics.density).toInt()
         if (isPhone()) {
             // HP: ukuran kecil (dua widget muat sebaris), diletakkan di ruang kosong mulai dari bawah.
-            val (wDp, hDp) = WStore.dims(0)
+            val (wDp, hDp) = startDims(t, 0, deskWdp)
             val (x, y) = freeSpot(wDp, hDp, deskWdp, deskHdp)
             items.add(WItem(System.currentTimeMillis(), t, x, y, wDp, hDp))
         } else {
-            val (wDp, hDp) = WStore.dims(1)
+            val (wDp, hDp) = startDims(t, 1, deskWdp)
             val per = max(1, (deskHdp - 12) / (hDp + 12))
             val idx = items.size
             val x = max(0, deskWdp - wDp - 16 - (idx / per) * (wDp + 12))
@@ -225,6 +236,11 @@ internal class WidgetLayer(
         }
         WStore.save(prefs, items)
         relayout()
+    }
+
+    private fun startDims(t: WType, size: Int, deskWdp: Int): Pair<Int, Int> {
+        if (t.defW <= 0) return WStore.dims(size)
+        return min(t.defW, max(WStore.MIN_W, deskWdp - 16)) to t.defH
     }
 
     private fun isPhone(): Boolean = act.resources.configuration.smallestScreenWidthDp < 600
@@ -440,6 +456,11 @@ internal class WidgetLayer(
         WType.STORAGE -> buildStorage(it.size)
         WType.MEMORY -> buildMemory(it.size)
         WType.NOTE -> buildNote(it)
+        WType.TOOLS -> buildTools()
+        WType.MONTH -> buildMonth(it.size)
+        WType.WORLD -> buildWorld(it)
+        WType.NET -> buildNet(it.size)
+        WType.SEARCH -> buildSearch()
     }
 
     private fun buildClock(size: Int): Pair<View, () -> Unit> {
@@ -538,6 +559,7 @@ internal class WidgetLayer(
 
     private fun buildMemory(size: Int): Pair<View, () -> Unit> {
         val (c, ring, ts) = ringCard("Memori", size)
+        val busy = BooleanArray(1)
         val upd: () -> Unit = {
             val am = act.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
             val mi = ActivityManager.MemoryInfo()
@@ -547,11 +569,254 @@ internal class WidgetLayer(
             ring.progress = f
             ring.label = "${(f * 100).toInt()}%"
             ring.ringColor = if (f > 0.9f) 0xFFE5484D.toInt() else Th.accent
-            ts.second.text = "${fmtSize(used)} dari ${fmtSize(mi.totalMem)}" +
-                (if (size >= 1) "\n${fmtSize(mi.availMem)} tersedia" else "")
+            ts.second.text = if (busy[0]) "Membersihkan…" else
+                "${fmtSize(used)} dari ${fmtSize(mi.totalMem)}" +
+                    (if (size >= 1) "\n${fmtSize(mi.availMem)} tersedia" else "") +
+                    (if (size >= 2) "\nKetuk untuk membersihkan" else "")
             ring.invalidate()
         }
+        // Ketuk widget = bebaskan RAM (hentikan proses latar belakang aplikasi lain) dan bersihkan cache launcher.
+        c.setOnClickListener {
+            if (!busy[0]) {
+                busy[0] = true
+                upd()
+                Thread {
+                    val r = Cleaner.clean(act)
+                    act.runOnUiThread {
+                        busy[0] = false
+                        upd()
+                        val ram = if (r.ramFreed >= 1_000_000L) "RAM bertambah ${fmtSize(r.ramFreed)}" else "RAM sudah cukup bersih"
+                        val cache = if (r.cacheFreed > 0) ", cache launcher ${fmtSize(r.cacheFreed)} dibersihkan" else ""
+                        Toast.makeText(act, ram + cache, Toast.LENGTH_LONG).show()
+                    }
+                }.start()
+            }
+        }
         return c to upd
+    }
+
+    // ---------- widget tambahan ----------
+    private fun rowCard(pad: Int = 8): LinearLayout = act.ll(false, Gravity.CENTER_VERTICAL).apply {
+        background = act.rounded(Th.panel(), act.dpf(18f), Th.p.stroke, act.dp(1))
+        elevation = act.dpf(6f)
+        setPadding(act.dp(pad), act.dp(pad), act.dp(pad), act.dp(pad))
+    }
+
+    private fun openSys(vararg actions: String) {
+        for (a in actions) {
+            try {
+                act.startActivity(Intent(a).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                return
+            } catch (e: Throwable) {
+                // coba cadangan berikutnya
+            }
+        }
+        Toast.makeText(act, "Tidak dapat membuka pengaturan ini", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun buildTools(): Pair<View, () -> Unit> {
+        val c = rowCard()
+        fun button(kind: GlyphView.Kind, label: String, onClick: (FrameLayout, GlyphView) -> Unit) {
+            val col = act.ll(true, Gravity.CENTER_HORIZONTAL)
+            val ic = act.icon(kind, Th.p.text)
+            val circle = FrameLayout(act).apply {
+                background = act.rounded(Th.withAlpha(Th.accent, 0x30), act.dpf(24f))
+                addView(ic, FrameLayout.LayoutParams(act.dp(22), act.dp(22), Gravity.CENTER))
+                setOnClickListener { onClick(this, ic) }
+            }
+            col.addView(circle, LinearLayout.LayoutParams(act.dp(46), act.dp(46)))
+            col.addView(act.tv(label, 10f, Th.p.dim).apply {
+                maxLines = 1
+                setPadding(0, act.dp(3), 0, 0)
+            })
+            c.addView(col, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        }
+        var torchOn = false
+        button(GlyphView.Kind.SUN, "Senter") { circle, ic ->
+            try {
+                val cm = act.getSystemService(Context.CAMERA_SERVICE) as android.hardware.camera2.CameraManager
+                val id = cm.cameraIdList.firstOrNull {
+                    cm.getCameraCharacteristics(it).get(android.hardware.camera2.CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+                }
+                if (id == null) {
+                    Toast.makeText(act, "Perangkat ini tidak punya lampu senter", Toast.LENGTH_SHORT).show()
+                } else {
+                    torchOn = !torchOn
+                    cm.setTorchMode(id, torchOn)
+                    circle.background = act.rounded(if (torchOn) Th.accent else Th.withAlpha(Th.accent, 0x30), act.dpf(24f))
+                    ic.tint = if (torchOn) Th.onAccent else Th.p.text
+                    ic.invalidate()
+                }
+            } catch (e: Throwable) {
+                torchOn = false
+                Toast.makeText(act, "Senter tidak dapat dinyalakan", Toast.LENGTH_SHORT).show()
+            }
+        }
+        button(GlyphView.Kind.NET, "Wi-Fi") { _, _ ->
+            openSys("android.settings.panel.action.INTERNET_CONNECTIVITY", android.provider.Settings.ACTION_WIFI_SETTINGS)
+        }
+        button(GlyphView.Kind.BLUETOOTH, "Bluetooth") { _, _ ->
+            openSys(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS)
+        }
+        button(GlyphView.Kind.VOLUME, "Volume") { _, _ ->
+            openSys("android.settings.panel.action.VOLUME", android.provider.Settings.ACTION_SOUND_SETTINGS)
+        }
+        return c to {}
+    }
+
+    private fun buildMonth(size: Int): Pair<View, () -> Unit> {
+        val c = act.ll(true).apply {
+            background = act.rounded(Th.panel(), act.dpf(18f), Th.p.stroke, act.dp(1))
+            elevation = act.dpf(6f)
+            setPadding(act.dp(10), act.dp(8), act.dp(10), act.dp(8))
+        }
+        val sp = floatArrayOf(9f, 10f, 12f)[size]
+        val title = act.tv("", sp + 3f, Th.accent, true)
+        val grid = act.ll(true)
+        c.addView(title)
+        c.addView(grid, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f).apply { topMargin = act.dp(4) })
+        var shownDay = -1
+        fun cell(text: String, color: Int, bold: Boolean, today: Boolean): View =
+            act.tv(text, sp, if (today) Th.onAccent else color, bold || today).apply {
+                gravity = Gravity.CENTER
+                if (today) background = act.rounded(Th.accent, act.dpf(12f))
+            }
+        val upd: () -> Unit = {
+            val now = java.util.Calendar.getInstance()
+            val day = now.get(java.util.Calendar.DAY_OF_YEAR) * 10000 + now.get(java.util.Calendar.YEAR)
+            if (day != shownDay) {
+                shownDay = day
+                title.text = java.text.SimpleDateFormat("MMMM yyyy", java.util.Locale.getDefault()).format(now.time)
+                grid.removeAllViews()
+                val head = act.ll(false)
+                for (d in listOf("Sn", "Sl", "Rb", "Km", "Jm", "Sb", "Mg")) {
+                    head.addView(cell(d, Th.p.dim, true, false), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f))
+                }
+                grid.addView(head, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
+                val first = java.util.Calendar.getInstance().apply {
+                    set(java.util.Calendar.DAY_OF_MONTH, 1)
+                }
+                val offset = (first.get(java.util.Calendar.DAY_OF_WEEK) + 5) % 7 // Senin = 0
+                val days = first.getActualMaximum(java.util.Calendar.DAY_OF_MONTH)
+                val today = now.get(java.util.Calendar.DAY_OF_MONTH)
+                var n = 1 - offset
+                for (r in 0 until 6) {
+                    if (n > days) break
+                    val row = act.ll(false)
+                    for (col in 0 until 7) {
+                        val view = if (n in 1..days) cell(n.toString(), if (col == 6) 0xFFE5484D.toInt() else Th.p.text, false, n == today)
+                        else cell("", Th.p.text, false, false)
+                        row.addView(view, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f))
+                        n++
+                    }
+                    grid.addView(row, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
+                }
+            }
+        }
+        return c to upd
+    }
+
+    private fun buildWorld(it: WItem): Pair<View, () -> Unit> {
+        val c = act.ll(true, Gravity.CENTER_VERTICAL).apply {
+            background = act.rounded(Th.panel(), act.dpf(18f), Th.p.stroke, act.dp(1))
+            elevation = act.dpf(6f)
+            setPadding(act.dp(14), act.dp(8), act.dp(14), act.dp(8))
+        }
+        val zones = listOf(
+            Triple("Jakarta", "WIB", "Asia/Jakarta"),
+            Triple("Makassar", "WITA", "Asia/Makassar"),
+            Triple("Jayapura", "WIT", "Asia/Jayapura"),
+            Triple("Mekkah", "AST", "Asia/Riyadh"),
+            Triple("London", "UK", "Europe/London")
+        )
+        val rows = when {
+            it.h < 110 -> 3
+            it.h < 140 -> 4
+            else -> 5
+        }
+        val sp = floatArrayOf(12f, 13f, 15f)[it.size]
+        for ((city, tag, zone) in zones.take(rows)) {
+            val row = act.ll(false, Gravity.CENTER_VERTICAL)
+            row.addView(act.tv(city, sp, Th.p.text).apply { maxLines = 1 }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            row.addView(act.tv(tag, sp - 3f, Th.p.dim).apply { setPadding(0, 0, act.dp(8), 0) })
+            row.addView(TextClock(act).apply {
+                format12Hour = "HH:mm"
+                format24Hour = "HH:mm"
+                timeZone = zone
+                textSize = sp + 1f
+                setTextColor(Th.accent)
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+            })
+            c.addView(row, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
+        }
+        return c to {}
+    }
+
+    private fun buildNet(size: Int): Pair<View, () -> Unit> {
+        val c = card()
+        c.addView(act.tv("Jaringan", floatArrayOf(12f, 13f, 15f)[size], Th.accent, true))
+        val sp = floatArrayOf(15f, 18f, 22f)[size]
+        val down = act.tv("", sp, Th.p.text, true).apply { maxLines = 1 }
+        val up = act.tv("", sp - 3f, Th.p.dim).apply { maxLines = 1 }
+        val kind = act.tv("", 11f, Th.p.dim).apply { maxLines = 1 }
+        c.addView(down)
+        c.addView(up)
+        c.addView(kind)
+        var lastRx = android.net.TrafficStats.getTotalRxBytes()
+        var lastTx = android.net.TrafficStats.getTotalTxBytes()
+        var lastT = System.currentTimeMillis()
+        val upd: () -> Unit = {
+            val now = System.currentTimeMillis()
+            val dt = now - lastT
+            if (dt >= 800) {
+                val rx = android.net.TrafficStats.getTotalRxBytes()
+                val tx = android.net.TrafficStats.getTotalTxBytes()
+                if (rx >= 0 && lastRx >= 0) {
+                    down.text = "\u2193 " + fmtSize(max(0L, (rx - lastRx) * 1000 / dt)) + "/s"
+                    up.text = "\u2191 " + fmtSize(max(0L, (tx - lastTx) * 1000 / dt)) + "/s"
+                } else {
+                    down.text = "Tidak tersedia"
+                    up.text = ""
+                }
+                lastRx = rx
+                lastTx = tx
+                lastT = now
+            }
+            val cm = act.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+            val caps = try {
+                cm.getNetworkCapabilities(cm.activeNetwork)
+            } catch (e: Throwable) {
+                null
+            }
+            kind.text = when {
+                caps == null -> "Offline"
+                caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) -> "Wi-Fi"
+                caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) -> "Data seluler"
+                caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET) -> "Ethernet"
+                else -> "Terhubung"
+            }
+        }
+        // Segarkan tiap 2 detik selama widget terlihat.
+        val loop = object : Runnable {
+            override fun run() {
+                if (!c.isAttachedToWindow) return
+                upd()
+                c.postDelayed(this, 2000)
+            }
+        }
+        c.post(loop)
+        return c to upd
+    }
+
+    private fun buildSearch(): Pair<View, () -> Unit> {
+        val c = rowCard(14)
+        c.addView(act.icon(GlyphView.Kind.SEARCH, Th.accent), LinearLayout.LayoutParams(act.dp(22), act.dp(22)))
+        c.addView(act.tv("Ketik di sini untuk mencari", 14f, Th.p.dim).apply {
+            maxLines = 1
+            setPadding(act.dp(12), 0, 0, 0)
+        }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        c.setOnClickListener { (act as? MainActivity)?.openSearchFromWidget() }
+        return c to {}
     }
 
     private fun buildNote(it: WItem): Pair<View, () -> Unit> {

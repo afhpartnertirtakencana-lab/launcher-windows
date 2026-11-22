@@ -1127,6 +1127,8 @@ class MainActivity : Activity() {
     // ---------- desktop ----------
     internal fun renderDesktopNow() = renderDesktop()
 
+    internal fun openSearchFromWidget() = openStart(true)
+
     private val desktopRender = Runnable { renderDesktop() }
 
     private fun scheduleDesktopRender(delayMs: Long = 60) {
