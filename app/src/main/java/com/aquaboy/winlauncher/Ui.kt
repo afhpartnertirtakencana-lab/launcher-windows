@@ -504,3 +504,28 @@ fun Activity.handleShortcut(e: android.view.KeyEvent): Boolean {
     }
     return false
 }
+
+
+// ---------- HP landscape: tampilan seperti tablet, diperkecil agar pas layar ----------
+
+/** True bila Activity ini sedang memakai tampilan tablet yang diperkecil (HP landscape). */
+internal var landScaled = false
+
+/**
+ * HP (lebar terkecil < 600dp) dalam posisi landscape: kepadatan layar dikecilkan supaya
+ * ruang dp terlihat seperti tablet (tinggi sekitar 600dp), jadi seluruh tata letak tablet muat di layar.
+ */
+internal fun scaledForLandscape(base: android.content.Context): android.content.Context {
+    val c = base.resources.configuration
+    landScaled = false
+    if (c.screenWidthDp <= c.screenHeightDp || c.smallestScreenWidthDp >= 600 || c.densityDpi <= 0) return base
+    val s = (c.screenHeightDp / 600f).coerceIn(0.5f, 1f)
+    if (s >= 0.99f) return base
+    val n = android.content.res.Configuration(c)
+    n.densityDpi = (c.densityDpi * s).toInt().coerceAtLeast(80)
+    n.screenWidthDp = (c.screenWidthDp / s).toInt()
+    n.screenHeightDp = (c.screenHeightDp / s).toInt()
+    n.smallestScreenWidthDp = n.screenHeightDp
+    landScaled = true
+    return base.createConfigurationContext(n)
+}

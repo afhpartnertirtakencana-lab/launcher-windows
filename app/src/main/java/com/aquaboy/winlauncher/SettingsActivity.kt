@@ -84,6 +84,10 @@ internal class SAppRef(val label: String, val pkg: String, val cn: ComponentName
 
 /** Menu Pengaturan bergaya Windows 11: panel navigasi di kiri (tablet) atau daftar kategori (HP). */
 class SettingsActivity : Activity() {
+    override fun attachBaseContext(newBase: android.content.Context) {
+        super.attachBaseContext(scaledForLandscape(newBase))
+    }
+
 
     companion object {
         const val EXTRA_PAGE = "page"

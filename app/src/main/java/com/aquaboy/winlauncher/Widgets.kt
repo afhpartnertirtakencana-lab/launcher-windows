@@ -59,11 +59,12 @@ internal class WItem(val id: Long, val type: WType, var x: Int, var y: Int, var 
 }
 
 internal object WStore {
-    private const val KEY = "widgets"
+    const val KEY = "widgets"
+    const val KEY_LAND = "widgets_land"
 
-    fun load(sp: SharedPreferences): MutableList<WItem> {
+    fun load(sp: SharedPreferences, key: String = KEY): MutableList<WItem> {
         val out = ArrayList<WItem>()
-        val raw = sp.getString(KEY, "") ?: ""
+        val raw = sp.getString(key, "") ?: ""
         for (part in raw.split(";")) {
             val f = part.split(",")
             if (f.size != 5 && f.size != 7) continue
@@ -81,8 +82,8 @@ internal object WStore {
         return out
     }
 
-    fun save(sp: SharedPreferences, list: List<WItem>) {
-        sp.edit().putString(KEY, list.joinToString(";") { "${it.id},${it.type.name},${it.size},${it.x},${it.y},${it.w},${it.h}" }).apply()
+    fun save(sp: SharedPreferences, list: List<WItem>, key: String = KEY) {
+        sp.edit().putString(key, list.joinToString(";") { "${it.id},${it.type.name},${it.size},${it.x},${it.y},${it.w},${it.h}" }).apply()
     }
 
     const val MIN_W = 120
@@ -143,7 +144,10 @@ internal class WidgetLayer(
     private val desktop: FrameLayout,
     private val prefs: SharedPreferences
 ) {
-    private val items = WStore.load(prefs)
+    // HP landscape (tampilan tablet diperkecil) punya susunan widget sendiri, supaya tidak merusak susunan potret.
+    private val key = if (landScaled) WStore.KEY_LAND else WStore.KEY
+    private var needsArrange = landScaled && !prefs.contains(WStore.KEY_LAND)
+    private val items = WStore.load(prefs, if (needsArrange) WStore.KEY else key)
     private val updaters = ArrayList<() -> Unit>()
 
     fun enabled(): Boolean = prefs.getBoolean("widgets_show", true)
@@ -152,6 +156,10 @@ internal class WidgetLayer(
     fun render() {
         updaters.clear()
         if (!enabled()) return
+        if (needsArrange && desktop.width > 0 && desktop.height > 0) {
+            needsArrange = false
+            arrange(silent = true)
+        }
         for (it in items) {
             try {
                 renderOne(it)
@@ -237,7 +245,7 @@ internal class WidgetLayer(
             val y = 12 + (idx % per) * (hDp + 12)
             items.add(WItem(System.currentTimeMillis(), t, x, y, wDp, hDp))
         }
-        WStore.save(prefs, items)
+        WStore.save(prefs, items, key)
         relayout()
     }
 
@@ -246,7 +254,7 @@ internal class WidgetLayer(
         return min(t.defW, max(WStore.MIN_W, deskWdp - 16)) to t.defH
     }
 
-    private fun isPhone(): Boolean = act.resources.configuration.smallestScreenWidthDp < 600
+    private fun isPhone(): Boolean = !landScaled && act.resources.configuration.smallestScreenWidthDp < 600
 
     /** Cari ruang kosong (dp) untuk widget baru: dari kanan-bawah ke kiri lalu ke atas, tanpa menimpa widget lain. */
     private fun freeSpot(wDp: Int, hDp: Int, deskW: Int, deskH: Int): Pair<Int, Int> {
@@ -268,7 +276,7 @@ internal class WidgetLayer(
     }
 
     /** Susun ulang semua widget ke ruang kosong dari bawah, supaya tidak saling menimpa. */
-    fun arrange() {
+    fun arrange(silent: Boolean = false) {
         val deskWdp = (desktop.width / act.resources.displayMetrics.density).toInt()
         val deskHdp = (desktop.height / act.resources.displayMetrics.density).toInt()
         if (deskWdp <= 0 || deskHdp <= 0) return
@@ -282,9 +290,11 @@ internal class WidgetLayer(
             w.y = y
             items.add(w)
         }
-        WStore.save(prefs, items)
-        relayout()
-        Toast.makeText(act, "Widget dirapikan", Toast.LENGTH_SHORT).show()
+        WStore.save(prefs, items, key)
+        if (!silent) {
+            relayout()
+            Toast.makeText(act, "Widget dirapikan", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun attachGestures(v: View, item: WItem) {
@@ -336,7 +346,7 @@ internal class WidgetLayer(
                             val d = act.resources.displayMetrics.density
                             item.x = (lp.leftMargin / d).toInt()
                             item.y = (lp.topMargin / d).toInt()
-                            WStore.save(prefs, items)
+                            WStore.save(prefs, items, key)
                             desktop.post { relayout() }
                         } else {
                             showMenu(view, item)
@@ -366,13 +376,13 @@ internal class WidgetLayer(
                     val (pw, ph) = WStore.dims(mi.itemId - 1)
                     item.w = pw
                     item.h = ph
-                    WStore.save(prefs, items)
+                    WStore.save(prefs, items, key)
                     relayout()
                 }
                 9 -> {
                     items.remove(item)
                     prefs.edit().remove("widget_note_${item.id}").apply()
-                    WStore.save(prefs, items)
+                    WStore.save(prefs, items, key)
                     relayout()
                 }
             }
@@ -430,7 +440,7 @@ internal class WidgetLayer(
         })
         val dlg = act.showDialog("Ubah ukuran widget", box, "Selesai", null)
         dlg.setOnDismissListener {
-            WStore.save(prefs, items)
+            WStore.save(prefs, items, key)
             relayout()
         }
     }

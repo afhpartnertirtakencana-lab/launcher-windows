@@ -83,6 +83,10 @@ internal class QsTile(
 )
 
 class MainActivity : Activity() {
+    override fun attachBaseContext(newBase: android.content.Context) {
+        super.attachBaseContext(scaledForLandscape(newBase))
+    }
+
 
     private enum class Mode { PINNED, ALL }
 

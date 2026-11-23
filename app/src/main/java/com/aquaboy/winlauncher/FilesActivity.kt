@@ -76,6 +76,10 @@ internal class FmHolder(val root: LinearLayout) {
 
 /** File Explorer ala Windows 11. */
 class FilesActivity : Activity() {
+    override fun attachBaseContext(newBase: android.content.Context) {
+        super.attachBaseContext(scaledForLandscape(newBase))
+    }
+
 
     companion object {
         const val EXTRA_PATH = "path"
