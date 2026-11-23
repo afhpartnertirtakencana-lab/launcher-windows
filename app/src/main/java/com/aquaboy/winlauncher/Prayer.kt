@@ -222,7 +222,7 @@ class PrayerBootReceiver : BroadcastReceiver() {
 
 
 /** Menampilkan teks doa. [onSettings] dipanggil bila pengguna memilih "Atur jam". */
-fun android.app.Activity.showPrayerDialog(s: Prayer.Slot, onSettings: (() -> Unit)? = null) {
+internal fun android.app.Activity.showPrayerDialog(s: Prayer.Slot, onSettings: (() -> Unit)? = null) {
     val sp = getSharedPreferences(Th.PREFS, android.content.Context.MODE_PRIVATE)
     val text = Prayer.textOf(sp, s)
     val body = android.widget.TextView(this).apply {
