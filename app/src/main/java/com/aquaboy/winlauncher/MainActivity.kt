@@ -280,12 +280,22 @@ class MainActivity : Activity() {
         applyImmersive()
         ensureDesktopFilled()
         handler.postDelayed({ ensureDesktopFilled() }, 400)
+        handlePrayerIntent(intent)
         Crash.take(this)?.let { showCrashReport(it) }
     }
 
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
         closePanels()
+        handlePrayerIntent(intent)
+    }
+
+    /** Ketuk notifikasi waktu doa: tampilkan teks doanya. */
+    private fun handlePrayerIntent(i: Intent?) {
+        val id = i?.getStringExtra("prayer_id") ?: return
+        i.removeExtra("prayer_id")
+        val s = Prayer.slots.firstOrNull { it.id == id } ?: return
+        handler.postDelayed({ showPrayerDialog(s) }, 300)
     }
 
     /**

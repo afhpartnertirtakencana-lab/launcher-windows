@@ -1049,12 +1049,15 @@ internal class WidgetLayer(
     private fun buildPrayer(size: Int): Pair<View, () -> Unit> {
         val c = card()
         val head = act.tv("\u271D Waktu doa", floatArrayOf(11f, 12f, 14f)[size], Th.accent, true).apply { maxLines = 1 }
-        val name = act.tv("", floatArrayOf(14f, 16f, 19f)[size], Th.p.text, true).apply {
-            maxLines = 2
+        val name = act.tv("", floatArrayOf(12f, 16f, 19f)[size], Th.p.text, true).apply {
+            maxLines = if (size == 0) 1 else 2
             ellipsize = TextUtils.TruncateAt.END
         }
-        val time = act.tv("", floatArrayOf(22f, 28f, 36f)[size], Th.p.text, true).apply { maxLines = 1 }
-        val left = act.tv("", floatArrayOf(11f, 12f, 14f)[size], Th.accent).apply { maxLines = 1 }
+        val time = act.tv("", floatArrayOf(20f, 28f, 36f)[size], Th.p.text, true).apply { maxLines = 1 }
+        val left = act.tv("", floatArrayOf(10f, 12f, 14f)[size], Th.accent).apply {
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        }
         val later = act.tv("", 11f, Th.p.dim).apply {
             maxLines = 3
             ellipsize = TextUtils.TruncateAt.END
@@ -1065,11 +1068,15 @@ internal class WidgetLayer(
         c.addView(left)
         if (size >= 1) c.addView(later)
         c.setOnClickListener {
-            act.startActivity(
-                Intent(act, SettingsActivity::class.java)
-                    .putExtra(SettingsActivity.EXTRA_PAGE, "prayer")
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
-            )
+            val next = Prayer.upcoming(prefs, System.currentTimeMillis()).firstOrNull()?.first
+            val openSettings = {
+                act.startActivity(
+                    Intent(act, SettingsActivity::class.java)
+                        .putExtra(SettingsActivity.EXTRA_PAGE, "prayer")
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+                )
+            }
+            if (next == null) openSettings() else act.showPrayerDialog(next, openSettings)
         }
         val upd: () -> Unit = {
             val now = System.currentTimeMillis()
@@ -1081,11 +1088,15 @@ internal class WidgetLayer(
                 later.text = ""
             } else {
                 val (s, at) = up[0]
-                name.text = s.name
+                name.text = if (size == 0) s.name.replace("Doa Malaikat Tuhan", "Angelus") else s.name
                 time.text = Prayer.timeText(prefs, s)
                 val mins = ((at - now) / 60000L).toInt() + 1
-                left.text = (if (mins >= 60) "${mins / 60} jam ${mins % 60} menit lagi" else "$mins menit lagi") +
-                    (if (Prayer.masterOn(prefs)) "" else " · pengingat mati")
+                left.text = if (size == 0) {
+                    (if (mins >= 60) "${mins / 60} j ${mins % 60} mnt" else "$mins mnt") + " lagi"
+                } else {
+                    (if (mins >= 60) "${mins / 60} jam ${mins % 60} menit lagi" else "$mins menit lagi") +
+                        (if (Prayer.masterOn(prefs)) "" else " · pengingat mati")
+                }
                 later.text = up.drop(1).take(2).joinToString("\n") { "${Prayer.timeText(prefs, it.first)}  ${it.first.name}" }
             }
         }

@@ -20,16 +20,55 @@ import java.util.Calendar
  * Semua jam bisa diubah atau dimatikan di Pengaturan > Waktu doa.
  */
 internal object Prayer {
-    class Slot(val id: String, val name: String, val hour: Int, val minute: Int, val on: Boolean, val msg: String)
+    class Slot(val id: String, val name: String, val hour: Int, val minute: Int, val on: Boolean, val msg: String, val text: String)
+
+    // Doa-doa pendek yang umum dipakai. Teks panjang (Angelus, Koronka) sengaja tidak ditanam di sini:
+    // redaksinya berbeda antar buku doa, jadi ditempel sendiri oleh pengguna dari Puji Syukur / buku doa paroki.
+    private const val TANDA_SALIB = "Dalam nama Bapa dan Putra dan Roh Kudus. Amin."
+    private const val BAPA_KAMI = "Bapa kami yang ada di surga, dimuliakanlah nama-Mu. Datanglah Kerajaan-Mu. " +
+        "Jadilah kehendak-Mu di atas bumi seperti di dalam surga. Berilah kami rezeki pada hari ini, " +
+        "dan ampunilah kesalahan kami, seperti kami pun mengampuni yang bersalah kepada kami; " +
+        "dan janganlah masukkan kami ke dalam pencobaan, tetapi bebaskanlah kami dari yang jahat. Amin."
+    private const val SALAM_MARIA = "Salam Maria, penuh rahmat, Tuhan sertamu. Terpujilah engkau di antara wanita, " +
+        "dan terpujilah buah tubuhmu, Yesus. Santa Maria, Bunda Allah, doakanlah kami yang berdosa ini, " +
+        "sekarang dan waktu kami mati. Amin."
+    private const val KEMULIAAN = "Kemuliaan kepada Bapa dan Putra dan Roh Kudus, seperti pada permulaan, sekarang, selalu, " +
+        "dan sepanjang segala abad. Amin."
+    private const val CATATAN = "\n\n(Redaksi bisa berbeda tipis antar buku doa. Untuk teks lengkap, buka Puji Syukur atau buku doa paroki Anda, " +
+        "lalu tempel di Pengaturan > Waktu doa > ketuk doa ini.)"
+
+    private const val ANGELUS = "Doa Malaikat Tuhan (Angelus)\n\nUrutan doa:\n" +
+        "1. Ayat pertama (kabar malaikat kepada Maria), lalu Salam Maria\n" +
+        "2. Ayat kedua (\"Aku ini hamba Tuhan...\"), lalu Salam Maria\n" +
+        "3. Ayat ketiga (\"Sabda telah menjadi daging...\"), lalu Salam Maria\n" +
+        "4. Doa penutup (\"Marilah berdoa...\")\n\nSalam Maria:\n" + SALAM_MARIA + CATATAN
 
     val slots = listOf(
-        Slot("angelus_pagi", "Doa Malaikat Tuhan (pagi)", 6, 0, true, "Saatnya Doa Malaikat Tuhan. Mari berhenti sejenak untuk berdoa."),
-        Slot("jam3", "Doa pagi (Jam III)", 9, 0, false, "Saatnya doa pagi. Mohon bimbingan Roh Kudus untuk pekerjaan hari ini."),
-        Slot("angelus_siang", "Doa Malaikat Tuhan (siang)", 12, 0, true, "Saatnya Doa Malaikat Tuhan. Mari berhenti sejenak untuk berdoa."),
-        Slot("kerahiman", "Jam Kerahiman Ilahi", 15, 0, true, "Jam Kerahiman Ilahi. Saatnya berdoa Koronka atau berhenti sejenak untuk berdoa."),
-        Slot("angelus_sore", "Doa Malaikat Tuhan (sore)", 18, 0, true, "Saatnya Doa Malaikat Tuhan. Mari berhenti sejenak untuk berdoa."),
-        Slot("malam", "Doa malam", 20, 0, true, "Saatnya doa malam. Tutup hari ini dengan doa syukur.")
+        Slot("angelus_pagi", "Doa Malaikat Tuhan (pagi)", 6, 0, true,
+            "Saatnya Doa Malaikat Tuhan. Mari berhenti sejenak untuk berdoa.", ANGELUS),
+        Slot("jam3", "Doa pagi (Jam III)", 9, 0, false,
+            "Saatnya doa pagi. Mohon bimbingan Roh Kudus untuk pekerjaan hari ini.",
+            "Doa pagi\n\nTanda Salib:\n$TANDA_SALIB\n\nBapa Kami:\n$BAPA_KAMI\n\nKemuliaan:\n$KEMULIAAN"),
+        Slot("angelus_siang", "Doa Malaikat Tuhan (siang)", 12, 0, true,
+            "Saatnya Doa Malaikat Tuhan. Mari berhenti sejenak untuk berdoa.", ANGELUS),
+        Slot("kerahiman", "Jam Kerahiman Ilahi", 15, 0, true,
+            "Jam Kerahiman Ilahi. Saatnya berdoa Koronka atau berhenti sejenak untuk berdoa.",
+            "Jam Kerahiman Ilahi (pukul 15.00)\n\nUrutan Koronka:\n" +
+                "1. Tanda Salib, Bapa Kami, Salam Maria, Aku Percaya\n" +
+                "2. Pada manik besar: \"Bapa yang kekal...\"\n" +
+                "3. Pada 10 manik kecil: \"Demi sengsara-Nya yang pedih...\"\n" +
+                "4. Ulangi untuk 5 peristiwa\n" +
+                "5. Akhiri dengan \"Kudus Allah...\" tiga kali\n\nSalam Maria:\n$SALAM_MARIA" + CATATAN),
+        Slot("angelus_sore", "Doa Malaikat Tuhan (sore)", 18, 0, true,
+            "Saatnya Doa Malaikat Tuhan. Mari berhenti sejenak untuk berdoa.", ANGELUS),
+        Slot("malam", "Doa malam", 20, 0, true,
+            "Saatnya doa malam. Tutup hari ini dengan doa syukur.",
+            "Doa malam\n\nTanda Salib:\n$TANDA_SALIB\n\nBapa Kami:\n$BAPA_KAMI\n\nSalam Maria:\n$SALAM_MARIA\n\nKemuliaan:\n$KEMULIAAN")
     )
+
+    /** Teks doa: yang diubah pengguna, atau bawaan bila kosong. */
+    fun textOf(sp: SharedPreferences, s: Slot): String =
+        (sp.getString("prayer_${s.id}_text", "") ?: "").ifBlank { s.text }
 
     const val ACTION = "com.aquaboy.winlauncher.PRAYER"
 
@@ -130,8 +169,10 @@ internal object Prayer {
         val tone = sp.getInt("prayer_tone", 0)
         ensureChannels(ctx)
         val open = PendingIntent.getActivity(
-            ctx, 7200,
-            Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            ctx, 7200 + slots.indexOf(s).coerceAtLeast(0),
+            Intent(ctx, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                .putExtra("prayer_id", s.id),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val title = (if (test) "Uji: " else "") + s.name
@@ -142,7 +183,7 @@ internal object Prayer {
         b.setSmallIcon(R.drawable.ic_prayer)
             .setContentTitle(title)
             .setContentText(text)
-            .setStyle(android.app.Notification.BigTextStyle().bigText(text))
+            .setStyle(android.app.Notification.BigTextStyle().bigText(if (test) text else text + "\n\n" + textOf(sp, s)))
             .setContentIntent(open)
             .setAutoCancel(true)
         if (Build.VERSION.SDK_INT < 26) {
@@ -176,5 +217,36 @@ class PrayerReceiver : BroadcastReceiver() {
 class PrayerBootReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, i: Intent) {
         Prayer.scheduleAll(ctx)
+    }
+}
+
+
+/** Menampilkan teks doa. [onSettings] dipanggil bila pengguna memilih "Atur jam". */
+fun android.app.Activity.showPrayerDialog(s: Prayer.Slot, onSettings: (() -> Unit)? = null) {
+    val sp = getSharedPreferences(Th.PREFS, android.content.Context.MODE_PRIVATE)
+    val text = Prayer.textOf(sp, s)
+    val body = android.widget.TextView(this).apply {
+        this.text = text
+        setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 15f)
+        setTextColor(Th.p.text)
+        setLineSpacing(0f, 1.15f)
+    }
+    val sv = android.widget.ScrollView(this)
+    sv.addView(body)
+    val dm = resources.displayMetrics
+    val est = dp(24 + (text.length / 34 + text.count { it == '\n' } + 2) * 22)
+    val h = minOf(est, (dm.heightPixels * 0.55f).toInt())
+    val box = ll(true)
+    box.addView(
+        android.widget.TextView(this).apply {
+            this.text = Prayer.timeText(sp, s) + "  \u00B7  " + s.msg
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTextColor(Th.accent)
+            setPadding(0, 0, 0, dp(8))
+        }
+    )
+    box.addView(sv, android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, h))
+    showDialog("\u271D " + s.name, box, if (onSettings != null) "Atur jam" else "Tutup", if (onSettings != null) "Tutup" else null) {
+        onSettings?.invoke()
     }
 }

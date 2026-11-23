@@ -226,11 +226,32 @@ class SettingsActivity : Activity() {
             minute = Prayer.minuteOf(prefs, s)
         }
         box.addView(tp)
-        showDialog(s.name, box, "Simpan", "Batal") {
+        box.addView(tv("Teks doa (bisa Anda ubah atau tempel dari Puji Syukur)", 12f, Th.accent, true).apply { setPadding(0, dp(10), 0, dp(4)) })
+        val input = android.widget.EditText(this).apply {
+            setText(Prayer.textOf(prefs, s))
+            setTextColor(Th.p.text)
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13f)
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            minLines = 5
+            gravity = Gravity.TOP
+            background = rounded(Th.p.input, dpf(14f), Th.p.stroke, dp(1))
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+        }
+        box.addView(input)
+        box.addView(tv("Kembalikan teks bawaan", 12f, Th.accent).apply {
+            setPadding(0, dp(8), 0, dp(4))
+            setOnClickListener { input.setText(s.text) }
+        })
+        val sv = android.widget.ScrollView(this)
+        sv.addView(box)
+        val h = (resources.displayMetrics.heightPixels * 0.6f).toInt()
+        showDialog(s.name, FrameLayout(this).apply { addView(sv, FrameLayout.LayoutParams(MATCH, h)) }, "Simpan", "Batal") {
+            val txt = input.text.toString().trim()
             prefs.edit()
                 .putBoolean("prayer_${s.id}_on", on)
                 .putInt("prayer_${s.id}_h", tp.hour)
                 .putInt("prayer_${s.id}_m", tp.minute)
+                .putString("prayer_${s.id}_text", if (txt == s.text.trim()) "" else txt)
                 .apply()
             Prayer.scheduleAll(this)
             showPage(current)
