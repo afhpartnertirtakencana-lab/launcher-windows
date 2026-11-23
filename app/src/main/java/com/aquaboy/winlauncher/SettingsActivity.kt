@@ -366,6 +366,18 @@ class SettingsActivity : Activity() {
                 SLink(GlyphView.Kind.PHOTO, "Ganti wallpaper sistem", "Pilih gambar dari galeri atau wallpaper") {
                     startIntent(Intent.createChooser(Intent(Intent.ACTION_SET_WALLPAPER), "Pilih wallpaper"))
                 },
+                SLink(GlyphView.Kind.IMAGE, "Gambar wallpaper potret", if (java.io.File(filesDir, "wp_port.jpg").exists()) "Sudah dipilih" else "Untuk HP tegak (dipakai bila wallpaper sistem mati)") {
+                    pickWallpaper(7301)
+                },
+                SLink(GlyphView.Kind.IMAGE, "Gambar wallpaper landscape", if (java.io.File(filesDir, "wp_land.jpg").exists()) "Sudah dipilih" else "Untuk HP mendatar (dipakai bila wallpaper sistem mati)") {
+                    pickWallpaper(7302)
+                },
+                SLink(GlyphView.Kind.DELETE, "Hapus gambar wallpaper", "Kembali ke wallpaper bawaan sesuai warna aksen") {
+                    java.io.File(filesDir, "wp_port.jpg").delete()
+                    java.io.File(filesDir, "wp_land.jpg").delete()
+                    Th.bump(this)
+                    showPage(current)
+                },
                 SHeader("Efek"),
                 SToggle(GlyphView.Kind.PERSONALIZE, "Efek transparansi", "Panel Start dan taskbar tembus pandang", "transparency", true),
                 SToggle(GlyphView.Kind.UPDATE, "Animasi", "Animasi buka/tutup panel", "animations", true),
@@ -804,8 +816,40 @@ class SettingsActivity : Activity() {
     }
 
     @Suppress("DEPRECATION")
+    private fun pickWallpaper(code: Int) {
+        try {
+            startActivityForResult(Intent(Intent.ACTION_GET_CONTENT).setType("image/*"), code)
+        } catch (e: Exception) {
+            Toast.makeText(this, "Pemilih gambar tidak tersedia", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    @Suppress("DEPRECATION")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (resultCode == RESULT_OK && (requestCode == 7301 || requestCode == 7302)) {
+            val uri = data?.data ?: return
+            try {
+                val o = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                contentResolver.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it, null, o) }
+                var sample = 1
+                while (maxOf(o.outWidth, o.outHeight) / (sample * 2) >= 2400) sample *= 2
+                val o2 = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
+                val bmp = contentResolver.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it, null, o2) }
+                    ?: throw IllegalStateException("kosong")
+                java.io.FileOutputStream(java.io.File(filesDir, if (requestCode == 7301) "wp_port.jpg" else "wp_land.jpg")).use {
+                    bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, it)
+                }
+                bmp.recycle()
+                prefs.edit().putBoolean("syswp", false).apply()
+                Th.bump(this)
+                Toast.makeText(this, "Wallpaper disimpan", Toast.LENGTH_SHORT).show()
+                showPage(current)
+            } catch (e: Throwable) {
+                Toast.makeText(this, "Gagal memakai gambar itu", Toast.LENGTH_LONG).show()
+            }
+            return
+        }
         if (resultCode == RESULT_OK && requestCode == reqBackupSave) {
             val uri = data?.data ?: return
             try {

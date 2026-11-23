@@ -18,8 +18,32 @@ class WallpaperView(ctx: Context) : View(ctx) {
 
     private val p = Paint(Paint.ANTI_ALIAS_FLAG)
     private var bg: Shader? = null
+    private var photo: android.graphics.Bitmap? = null
+
+    /** Gambar wallpaper pilihan pengguna: satu untuk potret, satu untuk landscape (saling cadangan). */
+    fun reloadPhoto() {
+        photo = null
+        if (width <= 0 || height <= 0) return
+        val land = width > height
+        val dir = context.filesDir
+        val first = java.io.File(dir, if (land) "wp_land.jpg" else "wp_port.jpg")
+        val second = java.io.File(dir, if (land) "wp_port.jpg" else "wp_land.jpg")
+        val f = if (first.exists()) first else if (second.exists()) second else return
+        try {
+            val o = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            android.graphics.BitmapFactory.decodeFile(f.path, o)
+            var s = 1
+            while (o.outWidth / (s * 2) >= width && o.outHeight / (s * 2) >= height) s *= 2
+            val o2 = android.graphics.BitmapFactory.Options().apply { inSampleSize = s }
+            photo = android.graphics.BitmapFactory.decodeFile(f.path, o2)
+        } catch (e: Throwable) {
+            photo = null
+        }
+        invalidate()
+    }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        reloadPhoto()
         val a = Th.accent
         val colors = if (Th.dark) {
             intArrayOf(
@@ -42,6 +66,17 @@ class WallpaperView(ctx: Context) : View(ctx) {
     override fun onDraw(c: Canvas) {
         val w = width.toFloat()
         val h = height.toFloat()
+        val ph = photo
+        if (ph != null) {
+            // Isi layar (center-crop) tanpa meregangkan gambar.
+            val sc = maxOf(w / ph.width, h / ph.height)
+            val dx = (w - ph.width * sc) / 2f
+            val dy = (h - ph.height * sc) / 2f
+            val m = android.graphics.Matrix().apply { postScale(sc, sc); postTranslate(dx, dy) }
+            p.shader = null
+            c.drawBitmap(ph, m, p)
+            return
+        }
         p.style = Paint.Style.FILL
         p.shader = bg
         c.drawRect(0f, 0f, w, h, p)

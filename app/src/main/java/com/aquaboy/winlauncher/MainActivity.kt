@@ -1069,6 +1069,7 @@ class MainActivity : Activity() {
 
     private fun applyWallpaper() {
         wallpaperView.visibility = if (useSystemWallpaper) View.GONE else View.VISIBLE
+        if (!useSystemWallpaper) wallpaperView.reloadPhoto()
     }
 
     private fun openSettingsApp() {
