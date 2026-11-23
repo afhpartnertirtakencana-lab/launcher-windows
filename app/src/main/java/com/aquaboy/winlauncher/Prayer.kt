@@ -38,10 +38,17 @@ internal object Prayer {
         "lalu tempel di Pengaturan > Waktu doa > ketuk doa ini.)"
 
     private const val ANGELUS = "Doa Malaikat Tuhan (Angelus)\n\nUrutan doa:\n" +
-        "1. Ayat pertama (kabar malaikat kepada Maria), lalu Salam Maria\n" +
-        "2. Ayat kedua (\"Aku ini hamba Tuhan...\"), lalu Salam Maria\n" +
-        "3. Ayat ketiga (\"Sabda telah menjadi daging...\"), lalu Salam Maria\n" +
-        "4. Doa penutup (\"Marilah berdoa...\")\n\nSalam Maria:\n" + SALAM_MARIA + CATATAN
+        "1. Maria diberi kabar oleh malaikat Tuhan, bahwa ia akan mengandung dari Roh Kudus\n" +
+        "Salam Maria\n\n" +
+        "2. Aku ini hamba Tuhan. Terjadilah padaku menurut perkataan-Mu\n" +
+        "Salam Maria\n\n" +
+        "3. Sabda telah menjadi daging dan tinggal di antara kita\n" +
+        "Salam Maria\n\n" +
+        "4. Doa penutup\n" +
+        "Ya Allah, karena kabar malaikat kami mengetahui bahwa Yesus Kristus Putra-Mu menjadi manusia. " +
+        "Curahkanlah rahmat-Mu ke dalam hati kami supaya karena sengsara dan salib-Nya, " +
+        "kami dibawa kepada kebangkitan yang mulia. Sebab Dialah Tuhan, pengantara kami.\n\n" +
+        "Salam Maria:\n" + SALAM_MARIA
 
     val slots = listOf(
         Slot("angelus_pagi", "Doa Malaikat Tuhan (pagi)", 6, 0, true,
@@ -53,12 +60,15 @@ internal object Prayer {
             "Saatnya Doa Malaikat Tuhan. Mari berhenti sejenak untuk berdoa.", ANGELUS),
         Slot("kerahiman", "Jam Kerahiman Ilahi", 15, 0, true,
             "Jam Kerahiman Ilahi. Saatnya berdoa Koronka atau berhenti sejenak untuk berdoa.",
-            "Jam Kerahiman Ilahi (pukul 15.00)\n\nUrutan Koronka:\n" +
-                "1. Tanda Salib, Bapa Kami, Salam Maria, Aku Percaya\n" +
-                "2. Pada manik besar: \"Bapa yang kekal...\"\n" +
-                "3. Pada 10 manik kecil: \"Demi sengsara-Nya yang pedih...\"\n" +
-                "4. Ulangi untuk 5 peristiwa\n" +
-                "5. Akhiri dengan \"Kudus Allah...\" tiga kali\n\nSalam Maria:\n$SALAM_MARIA" + CATATAN),
+            "Jam Kerahiman Ilahi (pukul 15.00)\n\n" +
+                "Ya Yesus, Engkau telah wafat, namun sumber kehidupan telah memancar bagi jiwa-jiwa " +
+                "dan terbukalah lautan kerahiman bagi segenap dunia.\n" +
+                "O sumber kehidupan, kerahiman Ilahi yang tak terselami, naungilah segenap dunia " +
+                "dan curahkanlah diri-Mu pada kami.\n\n" +
+                "Doa utama kepada Kerahiman Ilahi:\n" +
+                "Darah dan air yang telah memancar dari Hati Yesus sebagai sumber kerahiman bagi kami, " +
+                "Engkaulah Andalanku. (3x)\n\n" +
+                "Yesus Raja Kerahiman Ilahi, Engkaulah Andalanku. Amin."),
         Slot("angelus_sore", "Doa Malaikat Tuhan (sore)", 18, 0, true,
             "Saatnya Doa Malaikat Tuhan. Mari berhenti sejenak untuk berdoa.", ANGELUS),
         Slot("malam", "Doa malam", 20, 0, true,
