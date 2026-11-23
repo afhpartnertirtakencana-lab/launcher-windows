@@ -205,6 +205,38 @@ class SettingsActivity : Activity() {
 
     private fun bump() = Th.bump(this)
 
+    private fun askNotifPermission() {
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 71)
+        }
+    }
+
+    private fun editPrayer(s: Prayer.Slot) {
+        val box = ll(true)
+        var on = Prayer.isOn(prefs, s)
+        val row = ll(false, Gravity.CENTER_VERTICAL)
+        row.addView(tv("Aktifkan waktu doa ini", 14f), LinearLayout.LayoutParams(0, WRAP, 1f))
+        row.addView(themedSwitch(on) { on = it })
+        box.addView(row)
+        val tp = android.widget.TimePicker(this).apply {
+            setIs24HourView(true)
+            hour = Prayer.hourOf(prefs, s)
+            minute = Prayer.minuteOf(prefs, s)
+        }
+        box.addView(tp)
+        showDialog(s.name, box, "Simpan", "Batal") {
+            prefs.edit()
+                .putBoolean("prayer_${s.id}_on", on)
+                .putInt("prayer_${s.id}_h", tp.hour)
+                .putInt("prayer_${s.id}_m", tp.minute)
+                .apply()
+            Prayer.scheduleAll(this)
+            showPage(current)
+        }
+    }
+
     override fun onDestroy() {
         Running.closed(ComponentName(this, SettingsActivity::class.java).flattenToString())
         super.onDestroy()
@@ -267,8 +299,39 @@ class SettingsActivity : Activity() {
             )
         }
 
+        page("prayer", "Waktu doa", GlyphView.Kind.BELL, "personalize") {
+            val rows = ArrayList<SRow>()
+            rows.add(SHeader("Pengingat"))
+            rows.add(SToggle(GlyphView.Kind.BELL, "Pengingat waktu doa", "Notifikasi dan nada pada jam doa yang aktif", "prayer_on", false) {
+                if (prefs.getBoolean("prayer_on", false)) askNotifPermission()
+                Prayer.scheduleAll(this)
+            })
+            rows.add(SSegment(GlyphView.Kind.VOLUME, "Nada pengingat", "Lonceng, nada notifikasi bawaan, atau tanpa suara",
+                listOf("Lonceng", "Nada sistem", "Senyap"), "prayer_tone", 0))
+            rows.add(SLink(GlyphView.Kind.BELL, "Coba nada sekarang", "Kirim satu notifikasi contoh") {
+                askNotifPermission()
+                Prayer.notify(this, Prayer.slots[2], true)
+            })
+            rows.add(SHeader("Jam doa (ketuk untuk mengubah)"))
+            for (s in Prayer.slots) {
+                rows.add(SLink(GlyphView.Kind.TIME, s.name, Prayer.timeText(prefs, s) + "  \u00B7  " + (if (Prayer.isOn(prefs, s)) "Aktif" else "Mati")) {
+                    editPrayer(s)
+                })
+            }
+            rows.add(SHeader("Ketepatan waktu"))
+            rows.add(SLink(GlyphView.Kind.PRIVACY, "Alarm tepat waktu",
+                if (Prayer.canExact(this)) "Aktif: pengingat berbunyi tepat pada menitnya"
+                else "Belum diizinkan, pengingat bisa terlambat beberapa menit. Ketuk untuk mengizinkan") {
+                if (android.os.Build.VERSION.SDK_INT >= 31) {
+                    startIntent(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, android.net.Uri.parse("package:$packageName")))
+                }
+            })
+            rows.add(SInfo("Jam bawaan", "Doa Malaikat Tuhan 06.00, 12.00, 18.00; Jam Kerahiman Ilahi 15.00; doa pagi 09.00 dan doa malam 20.00 mengikuti jam Ibadat Harian tradisional"))
+            rows
+        }
         page("personalize", "Personalisasi", GlyphView.Kind.PERSONALIZE, null) {
             listOf(
+                SLink(GlyphView.Kind.BELL, "Waktu doa Katolik", "Pengingat, jam, dan nada lonceng") { goTo("prayer") },
                 SHeader("Tema"),
                 SCustom { themeTiles() },
                 SHeader("Warna aksen"),

@@ -221,6 +221,7 @@ class MainActivity : Activity() {
         })
         registerNet()
         updateClock()
+        Prayer.scheduleAll(this)
         Badges.onChange = {
             handler.removeCallbacks(badgeRefresh)
             handler.postDelayed(badgeRefresh, 400)
@@ -1457,7 +1458,8 @@ class MainActivity : Activity() {
         Triple("Waktu & bahasa", "time", GlyphView.Kind.TIME),
         Triple("Aksesibilitas", "access", GlyphView.Kind.ACCESS),
         Triple("Privasi & keamanan", "privacy", GlyphView.Kind.PRIVACY),
-        Triple("Pembaruan", "update", GlyphView.Kind.UPDATE)
+        Triple("Pembaruan", "update", GlyphView.Kind.UPDATE),
+        Triple("Waktu doa |pengingat katolik angelus malaikat tuhan kerahiman rosario lonceng", "prayer", GlyphView.Kind.BELL)
     )
 
     @Volatile private var searchGen = 0
@@ -1532,7 +1534,7 @@ class MainActivity : Activity() {
         if (sets.isNotEmpty()) {
             startContent.addView(headerRow("Pengaturan", null, null))
             for ((title, id, kind) in sets) {
-                val shown = title.substringBefore(" tema").substringBefore(" cadangan")
+                val shown = title.substringBefore(" |").substringBefore(" tema").substringBefore(" cadangan")
                 startContent.addView(searchRow(kind, shown, "Buka di Pengaturan") {
                     closePanels()
                     openOwnWindow(SettingsActivity::class.java) { putExtra(SettingsActivity.EXTRA_PAGE, id) }

@@ -47,7 +47,10 @@ internal enum class WType(
     MONTH("Kalender bulan", "Kalender satu bulan penuh", GlyphView.Kind.STAR, 260, 200),
     WORLD("Jam dunia", "WIB, WITA, WIT, Mekkah, dan London", GlyphView.Kind.LANGUAGE, 220, 160),
     NET("Kecepatan jaringan", "Kecepatan unduh dan unggah", GlyphView.Kind.NET, 200, 110),
-    SEARCH("Pencarian", "Kolom cari cepat ke menu Start", GlyphView.Kind.SEARCH, 260, 80)
+    SEARCH("Pencarian", "Kolom cari cepat ke menu Start", GlyphView.Kind.SEARCH, 260, 80),
+    WEATHER("Cuaca", "Suhu dan kondisi cuaca kota pilihan", GlyphView.Kind.SUN, 220, 140),
+    MUSIC("Pemutar musik", "Kontrol musik yang sedang diputar", GlyphView.Kind.PHOTO, 260, 120),
+    PRAYER("Waktu doa", "Waktu doa Katolik berikutnya dengan hitung mundur", GlyphView.Kind.BELL, 220, 120)
 }
 
 internal class WItem(val id: Long, val type: WType, var x: Int, var y: Int, var w: Int, var h: Int) {
@@ -461,6 +464,9 @@ internal class WidgetLayer(
         WType.WORLD -> buildWorld(it)
         WType.NET -> buildNet(it.size)
         WType.SEARCH -> buildSearch()
+        WType.WEATHER -> buildWeather(it.size)
+        WType.MUSIC -> buildMusic(it.size)
+        WType.PRAYER -> buildPrayer(it.size)
     }
 
     private fun buildClock(size: Int): Pair<View, () -> Unit> {
@@ -817,6 +823,273 @@ internal class WidgetLayer(
         }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         c.setOnClickListener { (act as? MainActivity)?.openSearchFromWidget() }
         return c to {}
+    }
+
+    // ---------- cuaca (Open-Meteo, tanpa kunci API) ----------
+    private fun weatherText(code: Int): Pair<String, String> = when (code) {
+        0 -> "Cerah" to "\u2600\uFE0F"
+        1 -> "Cerah berawan" to "\uD83C\uDF24\uFE0F"
+        2 -> "Berawan sebagian" to "\u26C5"
+        3 -> "Mendung" to "\u2601\uFE0F"
+        45, 48 -> "Berkabut" to "\uD83C\uDF2B\uFE0F"
+        51, 53, 55, 56, 57 -> "Gerimis" to "\uD83C\uDF26\uFE0F"
+        61, 80 -> "Hujan ringan" to "\uD83C\uDF27\uFE0F"
+        63, 81 -> "Hujan sedang" to "\uD83C\uDF27\uFE0F"
+        65, 66, 67, 82 -> "Hujan lebat" to "\uD83C\uDF27\uFE0F"
+        71, 73, 75, 77, 85, 86 -> "Salju" to "\u2744\uFE0F"
+        95, 96, 99 -> "Badai petir" to "\u26C8\uFE0F"
+        else -> "Cuaca" to "\uD83C\uDF21\uFE0F"
+    }
+
+    private fun fetchJson(url: String): org.json.JSONObject? = try {
+        val con = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+        con.connectTimeout = 8000
+        con.readTimeout = 8000
+        con.requestMethod = "GET"
+        val text = con.inputStream.bufferedReader().use { it.readText() }
+        con.disconnect()
+        org.json.JSONObject(text)
+    } catch (e: Throwable) {
+        null
+    }
+
+    private fun buildWeather(size: Int): Pair<View, () -> Unit> {
+        val c = card()
+        val city = act.tv("", floatArrayOf(11f, 12f, 14f)[size], Th.accent, true).apply { maxLines = 1 }
+        val temp = act.tv("--°", floatArrayOf(30f, 38f, 50f)[size], Th.p.text, true).apply { maxLines = 1 }
+        val cond = act.tv("Memuat…", floatArrayOf(12f, 13f, 15f)[size], Th.p.text).apply { maxLines = 1 }
+        val more = act.tv("", floatArrayOf(10f, 11f, 12f)[size], Th.p.dim).apply {
+            maxLines = 3
+            ellipsize = TextUtils.TruncateAt.END
+        }
+        c.addView(city)
+        c.addView(temp)
+        c.addView(cond)
+        if (size >= 1) c.addView(more)
+        var loading = false
+
+        fun render() {
+            city.text = prefs.getString("weather_city", "Jakarta") ?: "Jakarta"
+            val raw = prefs.getString("weather_json", "") ?: ""
+            if (raw.isEmpty()) return
+            try {
+                val j = org.json.JSONObject(raw)
+                val cur = j.getJSONObject("current")
+                val code = cur.getInt("weather_code")
+                val (name, emoji) = weatherText(code)
+                val night = cur.optInt("is_day", 1) == 0 && (code == 0 || code == 1)
+                temp.text = "${Math.round(cur.getDouble("temperature_2m"))}°"
+                cond.text = (if (night) "\uD83C\uDF19" else emoji) + " " + name
+                val d = j.getJSONObject("daily")
+                val hi = Math.round(d.getJSONArray("temperature_2m_max").getDouble(0))
+                val lo = Math.round(d.getJSONArray("temperature_2m_min").getDouble(0))
+                val rain = d.optJSONArray("precipitation_probability_max")?.optInt(0, -1) ?: -1
+                more.text = "Tertinggi $hi° · Terendah $lo°" +
+                    (if (rain >= 0) " · Hujan $rain%" else "") +
+                    "\nTerasa ${Math.round(cur.getDouble("apparent_temperature"))}° · Lembap ${cur.getInt("relative_humidity_2m")}%" +
+                    (if (size >= 2) " · Angin ${Math.round(cur.getDouble("wind_speed_10m"))} km/j\nData: Open-Meteo.com" else "")
+            } catch (e: Throwable) {
+                cond.text = "Data cuaca tidak terbaca"
+            }
+        }
+
+        fun refresh(force: Boolean) {
+            val age = System.currentTimeMillis() - prefs.getLong("weather_time", 0L)
+            if (loading || (!force && age < 30 * 60 * 1000L)) return
+            loading = true
+            val lat = prefs.getString("weather_lat", "-6.2088") ?: "-6.2088"
+            val lon = prefs.getString("weather_lon", "106.8456") ?: "106.8456"
+            Thread {
+                val url = "https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon" +
+                    "&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,weather_code,wind_speed_10m" +
+                    "&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&forecast_days=1&timezone=auto"
+                val j = fetchJson(url)
+                act.runOnUiThread {
+                    loading = false
+                    if (j != null && j.has("current")) {
+                        prefs.edit().putString("weather_json", j.toString()).putLong("weather_time", System.currentTimeMillis()).apply()
+                        render()
+                    } else if ((prefs.getString("weather_json", "") ?: "").isEmpty()) {
+                        cond.text = "Tidak ada koneksi internet"
+                    }
+                }
+            }.start()
+        }
+
+        c.setOnClickListener {
+            act.promptDialog("Kota untuk cuaca", prefs.getString("weather_city", "Jakarta") ?: "", "Nama kota", "Cari") { q ->
+                val name = q.trim()
+                if (name.isNotEmpty()) {
+                    Toast.makeText(act, "Mencari $name…", Toast.LENGTH_SHORT).show()
+                    Thread {
+                        val j = fetchJson(
+                            "https://geocoding-api.open-meteo.com/v1/search?name=" + java.net.URLEncoder.encode(name, "UTF-8") +
+                                "&count=1&language=id&format=json"
+                        )
+                        val r = j?.optJSONArray("results")?.optJSONObject(0)
+                        act.runOnUiThread {
+                            if (r == null) {
+                                Toast.makeText(act, "Kota \"$name\" tidak ditemukan", Toast.LENGTH_LONG).show()
+                            } else {
+                                prefs.edit()
+                                    .putString("weather_city", r.optString("name", name))
+                                    .putString("weather_lat", r.getDouble("latitude").toString())
+                                    .putString("weather_lon", r.getDouble("longitude").toString())
+                                    .putLong("weather_time", 0L)
+                                    .putString("weather_json", "")
+                                    .apply()
+                                render()
+                                refresh(true)
+                            }
+                        }
+                    }.start()
+                }
+            }
+        }
+        val upd: () -> Unit = {
+            render()
+            refresh(false)
+        }
+        return c to upd
+    }
+
+    // ---------- pemutar musik (butuh akses notifikasi) ----------
+    private fun buildMusic(size: Int): Pair<View, () -> Unit> {
+        val c = card()
+        val app = act.tv("", 10f, Th.accent, true).apply { maxLines = 1 }
+        val title = act.tv("Tidak ada musik diputar", floatArrayOf(13f, 15f, 17f)[size], Th.p.text, true).apply {
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        }
+        val artist = act.tv("", floatArrayOf(11f, 12f, 14f)[size], Th.p.dim).apply {
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        }
+        val controls = act.ll(false, Gravity.CENTER)
+        var current: android.media.session.MediaController? = null
+        val playBtn = act.tv("\u25B6", 22f, Th.p.text, true)
+        fun ctl(label: TextView, onClick: () -> Unit) {
+            label.gravity = Gravity.CENTER
+            label.setOnClickListener {
+                onClick()
+                label.postDelayed({ if (label.isAttachedToWindow) label.rootView?.invalidate() }, 300)
+            }
+            controls.addView(label, LinearLayout.LayoutParams(0, act.dp(40), 1f))
+        }
+        ctl(act.tv("\u25C0\u25C0", 16f, Th.p.text, true)) { current?.transportControls?.skipToPrevious() }
+        ctl(playBtn) {
+            val st = current?.playbackState?.state
+            if (st == android.media.session.PlaybackState.STATE_PLAYING) current?.transportControls?.pause()
+            else current?.transportControls?.play()
+        }
+        ctl(act.tv("\u25B6\u25B6", 16f, Th.p.text, true)) { current?.transportControls?.skipToNext() }
+        c.addView(app)
+        c.addView(title)
+        c.addView(artist)
+        c.addView(controls, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = act.dp(4)
+        })
+        var noAccess = false
+        c.setOnClickListener {
+            if (noAccess) {
+                try {
+                    act.startActivity(Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                } catch (e: Throwable) {
+                    Toast.makeText(act, "Pengaturan tidak tersedia", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+        val upd: () -> Unit = {
+            try {
+                val msm = act.getSystemService(Context.MEDIA_SESSION_SERVICE) as android.media.session.MediaSessionManager
+                val list = msm.getActiveSessions(android.content.ComponentName(act, NotifService::class.java))
+                noAccess = false
+                current = list.firstOrNull { it.playbackState?.state == android.media.session.PlaybackState.STATE_PLAYING }
+                    ?: list.firstOrNull()
+                val cur = current
+                if (cur == null) {
+                    app.text = ""
+                    title.text = "Tidak ada musik diputar"
+                    artist.text = "Putar lagu di aplikasi musik"
+                    playBtn.text = "\u25B6"
+                } else {
+                    val md = cur.metadata
+                    app.text = try {
+                        act.packageManager.getApplicationLabel(act.packageManager.getApplicationInfo(cur.packageName, 0)).toString()
+                    } catch (e: Throwable) {
+                        cur.packageName
+                    }
+                    title.text = md?.getString(android.media.MediaMetadata.METADATA_KEY_TITLE) ?: "Sedang diputar"
+                    artist.text = md?.getString(android.media.MediaMetadata.METADATA_KEY_ARTIST) ?: ""
+                    playBtn.text = if (cur.playbackState?.state == android.media.session.PlaybackState.STATE_PLAYING) "\u275A\u275A" else "\u25B6"
+                }
+            } catch (e: SecurityException) {
+                noAccess = true
+                current = null
+                app.text = ""
+                title.text = "Butuh akses notifikasi"
+                artist.text = "Ketuk lalu aktifkan untuk launcher ini"
+                playBtn.text = "\u25B6"
+            } catch (e: Throwable) {
+                title.text = "Musik tidak tersedia"
+            }
+        }
+        val loop = object : Runnable {
+            override fun run() {
+                if (!c.isAttachedToWindow) return
+                upd()
+                c.postDelayed(this, 1500)
+            }
+        }
+        c.post(loop)
+        return c to upd
+    }
+
+    // ---------- waktu doa ----------
+    private fun buildPrayer(size: Int): Pair<View, () -> Unit> {
+        val c = card()
+        val head = act.tv("\u271D Waktu doa", floatArrayOf(11f, 12f, 14f)[size], Th.accent, true).apply { maxLines = 1 }
+        val name = act.tv("", floatArrayOf(14f, 16f, 19f)[size], Th.p.text, true).apply {
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.END
+        }
+        val time = act.tv("", floatArrayOf(22f, 28f, 36f)[size], Th.p.text, true).apply { maxLines = 1 }
+        val left = act.tv("", floatArrayOf(11f, 12f, 14f)[size], Th.accent).apply { maxLines = 1 }
+        val later = act.tv("", 11f, Th.p.dim).apply {
+            maxLines = 3
+            ellipsize = TextUtils.TruncateAt.END
+        }
+        c.addView(head)
+        c.addView(name)
+        c.addView(time)
+        c.addView(left)
+        if (size >= 1) c.addView(later)
+        c.setOnClickListener {
+            act.startActivity(
+                Intent(act, SettingsActivity::class.java)
+                    .putExtra(SettingsActivity.EXTRA_PAGE, "prayer")
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+            )
+        }
+        val upd: () -> Unit = {
+            val now = System.currentTimeMillis()
+            val up = Prayer.upcoming(prefs, now)
+            if (up.isEmpty()) {
+                name.text = "Belum ada waktu doa aktif"
+                time.text = "--.--"
+                left.text = "Ketuk untuk mengatur"
+                later.text = ""
+            } else {
+                val (s, at) = up[0]
+                name.text = s.name
+                time.text = Prayer.timeText(prefs, s)
+                val mins = ((at - now) / 60000L).toInt() + 1
+                left.text = (if (mins >= 60) "${mins / 60} jam ${mins % 60} menit lagi" else "$mins menit lagi") +
+                    (if (Prayer.masterOn(prefs)) "" else " · pengingat mati")
+                later.text = up.drop(1).take(2).joinToString("\n") { "${Prayer.timeText(prefs, it.first)}  ${it.first.name}" }
+            }
+        }
+        return c to upd
     }
 
     private fun buildNote(it: WItem): Pair<View, () -> Unit> {
