@@ -13,12 +13,16 @@ import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
 
-/** Wallpaper bawaan: gradasi dari warna aksen, mengikuti tema terang/gelap. */
+/**
+ * Wallpaper bawaan, digambar lewat kode (tajam di resolusi berapa pun, termasuk 4K).
+ * Gaya (pref "wp_style"): 0 mengikuti aksen, 1 biru, 2 hitam, 3 warna-warni, 4 senja.
+ */
 class WallpaperView(ctx: Context) : View(ctx) {
 
     private val p = Paint(Paint.ANTI_ALIAS_FLAG)
     private var bg: Shader? = null
     private var photo: android.graphics.Bitmap? = null
+    private var style = 0
 
     /** Gambar wallpaper pilihan pengguna: satu untuk potret, satu untuk landscape (saling cadangan). */
     fun reloadPhoto() {
@@ -42,25 +46,44 @@ class WallpaperView(ctx: Context) : View(ctx) {
         invalidate()
     }
 
-    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        reloadPhoto()
+    private fun bgColors(): IntArray {
         val a = Th.accent
-        val colors = if (Th.dark) {
-            intArrayOf(
-                Th.blend(a, 0xFF000000.toInt(), 0.90f),
-                Th.blend(a, 0xFF000000.toInt(), 0.62f),
-                Th.blend(a, 0xFF000000.toInt(), 0.20f),
-                Th.blend(a, 0xFFFFFFFF.toInt(), 0.35f)
-            )
-        } else {
-            intArrayOf(
-                Th.blend(a, 0xFFFFFFFF.toInt(), 0.90f),
-                Th.blend(a, 0xFFFFFFFF.toInt(), 0.65f),
-                Th.blend(a, 0xFFFFFFFF.toInt(), 0.30f),
-                Th.blend(a, 0xFF000000.toInt(), 0.10f)
-            )
+        return when (style) {
+            1 -> intArrayOf(0xFF031028.toInt(), 0xFF0A3A8C.toInt(), 0xFF1E78E6.toInt(), 0xFF8CCBFF.toInt())
+            2 -> intArrayOf(0xFF000000.toInt(), 0xFF05060A.toInt(), 0xFF0E111A.toInt(), 0xFF1C2230.toInt())
+            3 -> intArrayOf(0xFF140A33.toInt(), 0xFF4B1A96.toInt(), 0xFFD63A86.toInt(), 0xFFFFA340.toInt())
+            4 -> intArrayOf(0xFF14143F.toInt(), 0xFF5E2A8C.toInt(), 0xFFEE5F8A.toInt(), 0xFFFFB56B.toInt())
+            else -> if (Th.dark) {
+                intArrayOf(
+                    Th.blend(a, 0xFF000000.toInt(), 0.90f),
+                    Th.blend(a, 0xFF000000.toInt(), 0.62f),
+                    Th.blend(a, 0xFF000000.toInt(), 0.20f),
+                    Th.blend(a, 0xFFFFFFFF.toInt(), 0.35f)
+                )
+            } else {
+                intArrayOf(
+                    Th.blend(a, 0xFFFFFFFF.toInt(), 0.90f),
+                    Th.blend(a, 0xFFFFFFFF.toInt(), 0.65f),
+                    Th.blend(a, 0xFFFFFFFF.toInt(), 0.30f),
+                    Th.blend(a, 0xFF000000.toInt(), 0.10f)
+                )
+            }
         }
-        bg = LinearGradient(0f, 0f, w * 0.6f, h.toFloat(), colors, floatArrayOf(0f, 0.38f, 0.72f, 1f), Shader.TileMode.CLAMP)
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        style = try {
+            context.getSharedPreferences(Th.PREFS, Context.MODE_PRIVATE).getInt("wp_style", 0)
+        } catch (e: Throwable) {
+            0
+        }
+        reloadPhoto()
+        val colors = bgColors()
+        bg = if (style == 4) {
+            LinearGradient(0f, 0f, 0f, h.toFloat(), colors, floatArrayOf(0f, 0.40f, 0.72f, 1f), Shader.TileMode.CLAMP)
+        } else {
+            LinearGradient(0f, 0f, w * 0.6f, h.toFloat(), colors, floatArrayOf(0f, 0.38f, 0.72f, 1f), Shader.TileMode.CLAMP)
+        }
     }
 
     override fun onDraw(c: Canvas) {
@@ -80,21 +103,37 @@ class WallpaperView(ctx: Context) : View(ctx) {
         p.style = Paint.Style.FILL
         p.shader = bg
         c.drawRect(0f, 0f, w, h, p)
+        if (style == 4) drawSunset(c, w, h) else drawBloom(c, w, h)
+        p.shader = null
+    }
 
+    private fun drawBloom(c: Canvas, w: Float, h: Float) {
         val a = Th.accent
         val white = 0xFFFFFFFF.toInt()
         val black = 0xFF000000.toInt()
+        val rainbow = intArrayOf(0xFFFF5FA2.toInt(), 0xFFFFB02E.toInt(), 0xFF3DDC97.toInt(), 0xFF3AA0FF.toInt(), 0xFF9B6BFF.toInt(), 0xFFFF6B4A.toInt())
         val cx = w * 0.5f
         val cy = h * 0.46f
         val r = min(w, h) * 0.46f
         for (i in 0 until 6) {
             c.save()
             c.rotate(i * 60f + 12f, cx, cy)
-            val top = if (i % 2 == 0) Th.blend(a, white, 0.55f) else Th.blend(a, 0xFF9AA8FF.toInt(), 0.5f)
-            val bottom = if (i % 2 == 0) Th.blend(a, black, 0.35f) else Th.blend(a, black, 0.55f)
+            val top: Int
+            val bottom: Int
+            val alpha: Int
+            when (style) {
+                1 -> { top = if (i % 2 == 0) 0xFF8FD0FF.toInt() else 0xFF4DA3FF.toInt(); bottom = 0xFF0A3A8C.toInt(); alpha = 0xB0 }
+                2 -> { top = if (i % 2 == 0) 0xFF6C7A92.toInt() else 0xFF3E4659.toInt(); bottom = 0xFF05060A.toInt(); alpha = 0x90 }
+                3 -> { top = rainbow[i]; bottom = Th.blend(rainbow[i], black, 0.55f); alpha = 0xC0 }
+                else -> {
+                    top = if (i % 2 == 0) Th.blend(a, white, 0.55f) else Th.blend(a, 0xFF9AA8FF.toInt(), 0.5f)
+                    bottom = if (i % 2 == 0) Th.blend(a, black, 0.35f) else Th.blend(a, black, 0.55f)
+                    alpha = if (Th.dark) 0xB0 else 0x90
+                }
+            }
             p.shader = LinearGradient(
                 cx, cy - r, cx, cy,
-                intArrayOf(Th.withAlpha(top, if (Th.dark) 0xB0 else 0x90), Th.withAlpha(bottom, 0x22)),
+                intArrayOf(Th.withAlpha(top, alpha), Th.withAlpha(bottom, 0x22)),
                 null,
                 Shader.TileMode.CLAMP
             )
@@ -104,16 +143,46 @@ class WallpaperView(ctx: Context) : View(ctx) {
 
         p.shader = RadialGradient(
             cx, cy, r * 0.5f,
-            intArrayOf(0x66FFFFFF, 0x00FFFFFF),
+            intArrayOf(if (style == 2) 0x33FFFFFF else 0x66FFFFFF, 0x00FFFFFF),
             null,
             Shader.TileMode.CLAMP
         )
         c.drawCircle(cx, cy, r * 0.5f, p)
 
-        val vig = if (Th.dark) 0x55000A24 else 0x330A2A55
+        val vig = if (Th.dark || style == 2 || style == 3) 0x55000A24 else 0x330A2A55
         p.shader = LinearGradient(0f, h * 0.7f, 0f, h, 0x00000000, vig, Shader.TileMode.CLAMP)
         c.drawRect(0f, h * 0.7f, w, h, p)
-        p.shader = null
+    }
+
+    /** Senja: matahari besar di atas bukit-bukit berlapis. */
+    private fun drawSunset(c: Canvas, w: Float, h: Float) {
+        val sx = w * 0.5f
+        val sy = h * 0.60f
+        val sr = min(w, h) * 0.30f
+        p.shader = RadialGradient(sx, sy, sr * 1.8f, intArrayOf(0x66FFD9A0, 0x00FFD9A0), null, Shader.TileMode.CLAMP)
+        c.drawCircle(sx, sy, sr * 1.8f, p)
+        p.shader = LinearGradient(0f, sy - sr, 0f, sy + sr, 0xFFFFE9B0.toInt(), 0xFFFF9A6B.toInt(), Shader.TileMode.CLAMP)
+        c.drawCircle(sx, sy, sr, p)
+        val layers = intArrayOf(0xFF7A2E7E.toInt(), 0xFF4A1F63.toInt(), 0xFF241347.toInt())
+        for (k in layers.indices) {
+            val base = h * (0.70f + 0.08f * k)
+            val amp = h * (0.05f - 0.01f * k)
+            val path = Path()
+            path.moveTo(0f, h)
+            path.lineTo(0f, base)
+            var x = 0f
+            val step = w / 48f
+            while (x <= w + step) {
+                val y = base + amp * sin(x / w * (3.2f + k) * 6.2831855f + k * 1.7f) + amp * 0.5f * sin(x / w * 9f + k)
+                path.lineTo(x, y)
+                x += step
+            }
+            path.lineTo(w, h)
+            path.close()
+            p.shader = null
+            p.color = layers[k]
+            c.drawPath(path, p)
+        }
     }
 }
 

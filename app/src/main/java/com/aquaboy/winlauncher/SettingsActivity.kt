@@ -366,6 +366,8 @@ class SettingsActivity : Activity() {
                 SLink(GlyphView.Kind.PHOTO, "Ganti wallpaper sistem", "Pilih gambar dari galeri atau wallpaper") {
                     startIntent(Intent.createChooser(Intent(Intent.ACTION_SET_WALLPAPER), "Pilih wallpaper"))
                 },
+                SSegment(GlyphView.Kind.PHOTO, "Wallpaper bawaan", "Aksen mengikuti warna aksen; lainnya digambar tajam sampai 4K",
+                    listOf("Aksen", "Biru", "Hitam", "Warna", "Senja"), "wp_style", 0),
                 SLink(GlyphView.Kind.IMAGE, "Gambar wallpaper potret", if (java.io.File(filesDir, "wp_port.jpg").exists()) "Sudah dipilih" else "Untuk HP tegak (dipakai bila wallpaper sistem mati)") {
                     pickWallpaper(7301)
                 },
