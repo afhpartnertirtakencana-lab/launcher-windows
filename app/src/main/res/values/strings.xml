@@ -3,4 +3,5 @@
     <string name="app_name">Win Launcher</string>
     <string name="settings_label">Pengaturan Win</string>
     <string name="files_label">File Explorer</string>
+    <string name="lock_service_desc">Dipakai Win Launcher hanya untuk mengunci layar saat Anda mengetuk dua kali di desktop. Tidak membaca isi layar.</string>
 </resources>
