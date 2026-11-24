@@ -1466,7 +1466,7 @@ class SettingsActivity : Activity() {
                         bump()
                         r.after?.invoke()
                     }
-                    if (tablet) {
+                    if (tablet && r.options.size < 4) {
                         shell.addView(ctl)
                         addCard(parent, shell)
                     } else {

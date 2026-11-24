@@ -247,7 +247,9 @@ fun Context.segmented(options: List<String>, selected: Int, onSelect: (Int) -> U
     for ((i, o) in options.withIndex()) {
         val t = tv(o, 13f, Th.p.text, true).apply {
             gravity = Gravity.CENTER
-            setPadding(dp(14), dp(7), dp(14), dp(7))
+            maxLines = 1
+            isSingleLine = true
+            setPadding(dp(if (options.size >= 4) 8 else 14), dp(7), dp(if (options.size >= 4) 8 else 14), dp(7))
             setOnClickListener {
                 paint(i)
                 onSelect(i)
