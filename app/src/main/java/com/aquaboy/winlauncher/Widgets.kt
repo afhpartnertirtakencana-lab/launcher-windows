@@ -52,7 +52,9 @@ internal enum class WType(
     MUSIC("Pemutar musik", "Kontrol musik yang sedang diputar", GlyphView.Kind.PHOTO, 260, 120),
     PRAYER("Waktu doa", "Waktu doa Katolik berikutnya dengan hitung mundur", GlyphView.Kind.BELL, 220, 120),
     TODO("Daftar tugas", "Daftar tugas dengan kotak centang, ketuk untuk mengelola", GlyphView.Kind.CHECK, 240, 180),
-    COUNTDOWN("Hitung mundur", "Berapa hari lagi menuju tanggal penting", GlyphView.Kind.PIN, 200, 120)
+    COUNTDOWN("Hitung mundur", "Berapa hari lagi menuju tanggal penting", GlyphView.Kind.PIN, 200, 120),
+    LITURGY("Kalender liturgi", "Hari liturgi, masa, dan warna liturgi hari ini", GlyphView.Kind.STAR, 220, 120),
+    AGENDA("Agenda", "Acara kalender HP dalam 7 hari ke depan", GlyphView.Kind.TIME, 260, 170)
 }
 
 internal class WItem(val id: Long, val type: WType, var x: Int, var y: Int, var w: Int, var h: Int) {
@@ -481,6 +483,8 @@ internal class WidgetLayer(
         WType.PRAYER -> buildPrayer(it.size)
         WType.TODO -> buildTodo(it)
         WType.COUNTDOWN -> buildCountdown(it)
+        WType.LITURGY -> buildLiturgy(it.size)
+        WType.AGENDA -> buildAgenda(it.size)
     }
 
     private fun buildClock(size: Int): Pair<View, () -> Unit> {
@@ -1349,5 +1353,156 @@ internal class WidgetLayer(
             }
         }
         return c to upd
+    }
+
+    // ---------- Kalender liturgi ----------
+    private fun buildLiturgy(size: Int): Pair<View, () -> Unit> {
+        val c = card()
+        val head = act.tv("\u271D Kalender liturgi", floatArrayOf(10f, 11f, 13f)[size], Th.accent, true).apply { maxLines = 1 }
+        val title = act.tv("", floatArrayOf(13f, 15f, 18f)[size], Th.p.text, true).apply {
+            maxLines = if (size == 0) 2 else 3
+            ellipsize = TextUtils.TruncateAt.END
+        }
+        val sub = act.tv("", floatArrayOf(10f, 11f, 13f)[size], Th.p.dim).apply {
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        }
+        c.addView(head)
+        c.addView(title)
+        c.addView(sub)
+        val upd: () -> Unit = {
+            val d = Liturgy.today()
+            title.text = d.title
+            sub.text = d.season + "  \u00B7  " + d.colorName
+            // titik warna liturgi di depan judul
+            val dot = android.text.SpannableString("\u25CF  " + d.title)
+            dot.setSpan(android.text.style.ForegroundColorSpan(d.color), 0, 1, 0)
+            title.text = dot
+        }
+        c.setOnClickListener { showLiturgyDialog() }
+        return c to upd
+    }
+
+    private fun showLiturgyDialog() {
+        val d = Liturgy.today()
+        val fmt = java.text.SimpleDateFormat("EEEE, d MMMM yyyy", java.util.Locale("id"))
+        val now = java.util.Date()
+        val box = act.ll(true)
+        box.addView(act.tv(fmt.format(now), 12f, Th.accent, true))
+        val dotTitle = android.text.SpannableString("\u25CF  " + d.title)
+        dotTitle.setSpan(android.text.style.ForegroundColorSpan(d.color), 0, 1, 0)
+        box.addView(act.tv("", 17f, Th.p.text, true).apply {
+            text = dotTitle
+            setPadding(0, act.dp(6), 0, act.dp(4))
+        })
+        box.addView(act.tv(d.season + (if (d.rank.isNotEmpty()) "  \u00B7  " + d.rank else "") + "  \u00B7  warna " + d.colorName.lowercase(), 13f, Th.p.dim))
+        box.addView(act.tv("Dihitung otomatis tanpa internet. Untuk kepastian (mis. peringatan santo/santa setempat), ikuti kalender liturgi KWI atau paroki Anda.", 11f, Th.p.faint).apply {
+            setPadding(0, act.dp(10), 0, 0)
+        })
+        act.showDialog("Kalender liturgi", box, "Cari bacaan hari ini", "Tutup") {
+            val q = "bacaan harian katolik " + java.text.SimpleDateFormat("d MMMM yyyy", java.util.Locale("id")).format(now)
+            try {
+                act.startActivity(
+                    Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://www.google.com/search?q=" + java.net.URLEncoder.encode(q, "UTF-8")))
+                )
+            } catch (e: Exception) {
+                Toast.makeText(act, "Tidak ada peramban untuk membuka pencarian", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    // ---------- Agenda (kalender HP) ----------
+    private fun buildAgenda(size: Int): Pair<View, () -> Unit> {
+        val c = card()
+        c.gravity = Gravity.TOP
+        val head = act.tv("Agenda", floatArrayOf(11f, 12f, 14f)[size], Th.accent, true).apply { maxLines = 1 }
+        c.addView(head)
+        val n = intArrayOf(3, 5, 8)[size]
+        val rows = ArrayList<TextView>()
+        for (i in 0 until n) {
+            val r = act.tv("", floatArrayOf(11f, 12f, 14f)[size], Th.p.text).apply {
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+                setPadding(0, act.dp(3), 0, 0)
+            }
+            rows.add(r)
+            c.addView(r)
+        }
+        val upd: () -> Unit = {
+            val granted = act.checkSelfPermission(android.Manifest.permission.READ_CALENDAR) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            val lines = ArrayList<String>()
+            if (!granted) {
+                lines.add("Ketuk untuk mengizinkan akses kalender")
+            } else {
+                val ev = readEvents(n)
+                if (ev.isEmpty()) lines.add("Tidak ada acara 7 hari ke depan") else lines.addAll(ev)
+            }
+            for ((i, r) in rows.withIndex()) {
+                if (i < lines.size) {
+                    r.text = lines[i]
+                    r.visibility = View.VISIBLE
+                } else {
+                    r.visibility = View.GONE
+                }
+            }
+        }
+        c.setOnClickListener {
+            if (act.checkSelfPermission(android.Manifest.permission.READ_CALENDAR) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                act.requestPermissions(arrayOf(android.Manifest.permission.READ_CALENDAR), 7401)
+            } else {
+                try {
+                    act.startActivity(
+                        Intent(Intent.ACTION_VIEW, android.net.Uri.parse("content://com.android.calendar/time/" + System.currentTimeMillis()))
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                } catch (e: Exception) {
+                    Toast.makeText(act, "Aplikasi kalender tidak ditemukan", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+        return c to upd
+    }
+
+    private fun readEvents(limit: Int): List<String> {
+        val out = ArrayList<String>()
+        try {
+            val now = System.currentTimeMillis()
+            val b = android.provider.CalendarContract.Instances.CONTENT_URI.buildUpon()
+            android.content.ContentUris.appendId(b, now)
+            android.content.ContentUris.appendId(b, now + 7L * 86400000L)
+            val cur = act.contentResolver.query(
+                b.build(),
+                arrayOf(
+                    android.provider.CalendarContract.Instances.TITLE,
+                    android.provider.CalendarContract.Instances.BEGIN,
+                    android.provider.CalendarContract.Instances.ALL_DAY
+                ),
+                null, null, android.provider.CalendarContract.Instances.BEGIN + " ASC"
+            )
+            cur?.use {
+                val dayFmt = java.text.SimpleDateFormat("EEE", java.util.Locale("id"))
+                val timeFmt = java.text.SimpleDateFormat("HH:mm", java.util.Locale("id"))
+                while (it.moveToNext() && out.size < limit) {
+                    val title = it.getString(0) ?: "(tanpa judul)"
+                    val begin = it.getLong(1)
+                    val allDay = it.getInt(2) == 1
+                    val whenText = if (allDay) {
+                        // acara seharian disimpan dalam UTC
+                        val cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC")).apply { timeInMillis = begin }
+                        val local = java.util.Calendar.getInstance().apply {
+                            set(cal.get(java.util.Calendar.YEAR), cal.get(java.util.Calendar.MONTH), cal.get(java.util.Calendar.DAY_OF_MONTH), 0, 0, 0)
+                        }
+                        dayFmt.format(local.time) + " " + local.get(java.util.Calendar.DAY_OF_MONTH) + "  seharian"
+                    } else {
+                        val dt = java.util.Date(begin)
+                        dayFmt.format(dt) + " " + timeFmt.format(dt)
+                    }
+                    out.add("$whenText  $title")
+                }
+            }
+        } catch (e: Throwable) {
+            out.clear()
+        }
+        return out
     }
 }

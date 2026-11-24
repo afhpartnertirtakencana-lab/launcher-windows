@@ -255,6 +255,15 @@ internal fun android.app.Activity.showPrayerDialog(s: Prayer.Slot, onSettings: (
             setPadding(0, 0, 0, dp(8))
         }
     )
+    val lit = Liturgy.today()
+    box.addView(
+        android.widget.TextView(this).apply {
+            this.text = lit.title + "  \u00B7  " + lit.season
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 11f)
+            setTextColor(Th.p.dim)
+            setPadding(0, 0, 0, dp(8))
+        }
+    )
     box.addView(sv, android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, h))
     showDialog("\u271D " + s.name, box, if (onSettings != null) "Atur jam" else "Tutup", if (onSettings != null) "Tutup" else null) {
         onSettings?.invoke()

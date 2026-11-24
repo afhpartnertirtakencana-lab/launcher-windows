@@ -288,6 +288,11 @@ class MainActivity : Activity() {
         Crash.take(this)?.let { showCrashReport(it) }
     }
 
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 7401) renderDesktop()
+    }
+
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
         closePanels()
@@ -546,14 +551,37 @@ class MainActivity : Activity() {
     private fun setupDesktopInteractions() {
         val gd = android.view.GestureDetector(this, object : android.view.GestureDetector.SimpleOnGestureListener() {
             override fun onDoubleTap(e: MotionEvent): Boolean {
-                onDesktopDoubleTap()
+                runGesture(pi("dbl_action", 1))
                 return true
             }
+
+            override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
+                if (e1 == null || !pb("swipe_up", true)) return false
+                val dy = e1.y - e2.y
+                val dx = abs(e1.x - e2.x)
+                if (dy > dp(140) && dy > dx * 1.5f && vy < -1200f) {
+                    if (panel == P_NONE) openStart(false)
+                    return true
+                }
+                return false
+            }
         })
+        var twoY = -1f
         desktop.setOnTouchListener { _, e ->
             lastX = e.rawX
             lastY = e.rawY
             gd.onTouchEvent(e)
+            when (e.actionMasked) {
+                MotionEvent.ACTION_POINTER_DOWN -> if (e.pointerCount == 2) twoY = (e.getY(0) + e.getY(1)) / 2f
+                MotionEvent.ACTION_MOVE -> if (e.pointerCount == 2 && twoY >= 0f && pb("two_down", true)) {
+                    val y = (e.getY(0) + e.getY(1)) / 2f
+                    if (y - twoY > dp(90)) {
+                        twoY = -1f
+                        if (panel == P_NONE) toggleQs()
+                    }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> twoY = -1f
+            }
             false
         }
         desktop.setOnLongClickListener {
@@ -566,10 +594,10 @@ class MainActivity : Activity() {
         }
     }
 
-    /** Ketuk dua kali di area kosong desktop (aksi diatur di Personalisasi > Gestur). */
-    private fun onDesktopDoubleTap() {
+    /** Aksi gestur (aksi diatur di Personalisasi > Gestur): 1 kunci layar, 2 Start, 3 cari. */
+    private fun runGesture(action: Int) {
         if (::scrim.isInitialized && scrim.visibility != View.GONE) return
-        when (pi("dbl_action", 1)) {
+        when (action) {
             1 -> if (!LockService.lock()) {
                 Toast.makeText(this, "Aktifkan dulu: Pengaturan > Personalisasi > Gestur > Izin kunci layar", Toast.LENGTH_LONG).show()
             }
@@ -769,6 +797,17 @@ class MainActivity : Activity() {
         taskbar = FrameLayout(this).apply {
             setBackgroundColor(Th.p.taskbar)
             isClickable = true
+        }
+        val tbGd = android.view.GestureDetector(this, object : android.view.GestureDetector.SimpleOnGestureListener() {
+            override fun onDoubleTap(e: MotionEvent): Boolean {
+                val a = pi("dbl_taskbar", 0)
+                if (a != 0) runGesture(a)
+                return a != 0
+            }
+        })
+        taskbar.setOnTouchListener { _, e ->
+            tbGd.onTouchEvent(e)
+            false
         }
 
         center = ll(false, Gravity.CENTER_VERTICAL)
@@ -1131,9 +1170,12 @@ class MainActivity : Activity() {
         val openExtra = recents.mapNotNull { byKey[it] }
             .filter { it.key !in taskbarPins && isOpenWindow(it) }
             .take(5)
-        for (app in (pinned + openExtra).take(maxIcons)) {
+        loadFolders()
+        val tbf = tbFolderIds().mapNotNull { folderById(it) }.take(maxIcons)
+        for (app in (pinned + openExtra).take(max(0, maxIcons - tbf.size))) {
             center.addView(taskIcon(app), btnLp())
         }
+        for (f in tbf) center.addView(taskFolderIcon(f), btnLp())
     }
 
     private fun taskIcon(app: AppEntry): View =
@@ -1220,6 +1262,10 @@ class MainActivity : Activity() {
             "folders",
             folders.joinToString("\n") { "${it.id}|${it.name.replace("|", " ").replace("\n", " ")}|${it.keys.joinToString(",")}" }
         ).apply()
+        handler.post {
+            renderTaskbar()
+            renderStart()
+        }
     }
 
     private fun folderById(id: String): DeskFolder? = folders.firstOrNull { it.id == id }
@@ -1376,7 +1422,7 @@ class MainActivity : Activity() {
         desktop.post { renderDesktop() }
     }
 
-    private fun folderTile(f: DeskFolder, sizeDp: Int): View {
+    private fun folderBitmap(f: DeskFolder): Bitmap {
         val size = dp(64)
         val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val cv = Canvas(bmp)
@@ -1397,20 +1443,77 @@ class MainActivity : Activity() {
             val tp = pad + (i / 2) * cell + (cell - ic) / 2f
             cv.drawBitmap(iconOf(a), null, android.graphics.RectF(l, tp, l + ic, tp + ic), ip)
         }
-        val id = f.id
-        return desktopTile("folder:$id", f.name, bmp, null, { folderById(id)?.let { openFolder(it) } }, { v -> folderMenu(v, id) }, sizeDp)
+        return bmp
     }
+
+    private fun folderTile(f: DeskFolder, sizeDp: Int): View {
+        val id = f.id
+        return desktopTile("folder:$id", f.name, folderBitmap(f), null, { folderById(id)?.let { openFolder(it) } }, { v -> folderMenu(v, id) }, sizeDp)
+    }
+
+    /** Folder di menu Start (bagian "Folder"). */
+    private fun folderStartTile(f: DeskFolder): View {
+        val id = f.id
+        val v = ll(true, Gravity.CENTER_HORIZONTAL).apply {
+            if (tablet) setPadding(dp(4), dp(10), dp(4), dp(8)) else setPadding(dp(2), dp(12), dp(2), dp(10))
+            background = ripple(dpf(16f))
+        }
+        val iconPx = dp(if (tablet) 38 else 46)
+        v.addView(ImageView(this).apply { setImageBitmap(folderBitmap(f)) }, LinearLayout.LayoutParams(iconPx, iconPx))
+        v.addView(
+            tv(f.name, if (tablet) 12f else 11.5f).apply {
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+                gravity = Gravity.CENTER
+                setPadding(0, dp(if (tablet) 6 else 8), 0, 0)
+            },
+            LinearLayout.LayoutParams(MATCH, WRAP)
+        )
+        v.setOnClickListener {
+            closePanels()
+            folderById(id)?.let { openFolder(it) }
+        }
+        v.setOnLongClickListener {
+            folderMenu(v, id)
+            true
+        }
+        return v
+    }
+
+    private fun taskFolderIcon(f: DeskFolder): View {
+        val id = f.id
+        return FrameLayout(this).apply {
+            background = ripple(dpf(6f))
+            val s = dp(tbIconDp())
+            addView(ImageView(this@MainActivity).apply { setImageBitmap(folderBitmap(f)) }, FrameLayout.LayoutParams(s, s, Gravity.CENTER))
+            setOnClickListener { folderById(id)?.let { openFolder(it) } }
+            setOnLongClickListener {
+                folderMenu(this, id)
+                true
+            }
+        }
+    }
+
+    private fun tbFolderIds(): MutableList<String> =
+        (prefs.getString("tb_folders", "") ?: "").split(",").filter { it.isNotBlank() }.toMutableList()
 
     private fun folderMenu(anchorView: View, id: String) {
         val pop = PopupMenu(Th.themed(this), anchorView)
         pop.menu.add(0, 1, 0, "Buka folder")
         pop.menu.add(0, 2, 0, "Ganti nama")
+        pop.menu.add(0, 4, 0, if (id in tbFolderIds()) "Lepas dari taskbar" else "Sematkan ke taskbar")
         pop.menu.add(0, 3, 0, "Bubarkan folder")
         pop.setOnMenuItemClickListener { item ->
             val f = folderById(id)
             if (f != null) when (item.itemId) {
                 1 -> openFolder(f)
                 2 -> renameFolder(id)
+                4 -> {
+                    val l = tbFolderIds()
+                    if (id in l) l.remove(id) else l.add(id)
+                    prefs.edit().putString("tb_folders", l.joinToString(",")).apply()
+                    renderTaskbar()
+                }
                 3 -> {
                     folders.removeAll { it.id == id }
                     saveFolders()
@@ -1642,6 +1745,22 @@ class MainActivity : Activity() {
             })
         } else {
             startContent.addView(gridOf(pinned, cols) { tile(it) })
+        }
+
+        loadFolders()
+        if (folders.isNotEmpty()) {
+            startContent.addView(headerRow("Folder", null, null))
+            val wrap = ll(true).apply { setPadding(dp(16), 0, dp(16), dp(8)) }
+            val cols2 = cols
+            for (rowItems in folders.toList().chunked(cols2)) {
+                val row = ll(false)
+                for (i in 0 until cols2) {
+                    val lp = LinearLayout.LayoutParams(0, WRAP, 1f)
+                    row.addView(if (i < rowItems.size) folderStartTile(rowItems[i]) else Space(this), lp)
+                }
+                wrap.addView(row)
+            }
+            startContent.addView(wrap)
         }
 
         if (pb("start_recents", true)) {

@@ -393,6 +393,10 @@ class SettingsActivity : Activity() {
                 SHeader("Gestur"),
                 SSegment(GlyphView.Kind.HOME, "Ketuk dua kali di desktop", "Di area kosong desktop (bukan di ikon atau widget)",
                     listOf("Tidak ada", "Kunci layar", "Start", "Cari"), "dbl_action", 1),
+                SSegment(GlyphView.Kind.TASKBAR, "Ketuk dua kali di taskbar", "Di area kosong taskbar",
+                    listOf("Tidak ada", "Kunci layar", "Start", "Cari"), "dbl_taskbar", 0),
+                SToggle(GlyphView.Kind.UP, "Geser ke atas buka Start", "Di desktop, geser satu jari cepat ke atas", "swipe_up", true),
+                SToggle(GlyphView.Kind.CHEV_DOWN, "Geser dua jari ke bawah", "Membuka panel pengaturan cepat dan notifikasi", "two_down", true),
                 SLink(GlyphView.Kind.POWER, "Izin kunci layar",
                     if (LockService.instance != null) "Aktif. Layar bisa dimatikan dengan ketuk dua kali" else "Belum aktif. Ketuk, lalu aktifkan Win Launcher di Aksesibilitas") {
                     awaitAccess = true
