@@ -347,6 +347,17 @@ class SettingsActivity : Activity() {
                 askNotifPermission()
                 Prayer.notify(this, Prayer.slots[2], true)
             })
+            rows.add(SHeader("Teks lengkap"))
+            val ra = readingApp()
+            rows.add(SLink(GlyphView.Kind.DOC, "Aplikasi bacaan dan doa", if (ra != null) ra.first + " (ketuk untuk mengganti)" else "Pilih aplikasi seperti eKatolik; tombol pintasannya muncul di jendela doa dan kalender liturgi") {
+                pickReadingApp()
+            })
+            if (ra != null) {
+                rows.add(SLink(GlyphView.Kind.DELETE, "Lepas aplikasi bacaan", "Hapus pilihan aplikasi") {
+                    prefs.edit().remove("reading_app").apply()
+                    showPage(current)
+                })
+            }
             rows.add(SHeader("Jam doa (ketuk untuk mengubah)"))
             for (s in Prayer.slots) {
                 rows.add(SLink(GlyphView.Kind.TIME, s.name, Prayer.timeText(prefs, s) + "  \u00B7  " + (if (Prayer.isOn(prefs, s)) "Aktif" else "Mati")) {
@@ -1070,6 +1081,37 @@ class SettingsActivity : Activity() {
         add.addView(tv("Tambah aplikasi", 14f, Th.accent, true))
         box.addView(add)
         return box
+    }
+
+    private fun pickReadingApp() {
+        val list = ll(true)
+        var dlg: Dialog? = null
+        for (a in launcherApps()) {
+            val row = ll(false, Gravity.CENTER_VERTICAL).apply {
+                setPadding(dp(8), dp(8), dp(8), dp(8))
+                background = ripple(dpf(16f))
+                setOnClickListener {
+                    dlg?.dismiss()
+                    prefs.edit().putString("reading_app", a.cn.flattenToString()).apply()
+                    showPage(current)
+                }
+            }
+            row.addView(
+                ImageView(this).apply {
+                    try { setImageDrawable(pm.getActivityIcon(a.cn)) } catch (e: Exception) { }
+                },
+                LinearLayout.LayoutParams(dp(30), dp(30)).apply { rightMargin = dp(14) }
+            )
+            row.addView(tv(a.label, 14f).apply {
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+            })
+            list.addView(row)
+        }
+        val sv = ScrollView(this).apply { addView(list) }
+        val holder = FrameLayout(this)
+        holder.addView(sv, FrameLayout.LayoutParams(MATCH, dp(360)))
+        dlg = showDialog("Pilih aplikasi bacaan", holder, null, "Tutup")
     }
 
     private fun showAddDialog(prefKey: String) {

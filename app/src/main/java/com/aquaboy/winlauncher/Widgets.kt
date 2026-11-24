@@ -1399,7 +1399,15 @@ internal class WidgetLayer(
         box.addView(act.tv("Dihitung otomatis tanpa internet. Untuk kepastian (mis. peringatan santo/santa setempat), ikuti kalender liturgi KWI atau paroki Anda.", 11f, Th.p.faint).apply {
             setPadding(0, act.dp(10), 0, 0)
         })
-        act.showDialog("Kalender liturgi", box, "Cari bacaan hari ini", "Tutup") {
+        var dlg: android.app.Dialog? = null
+        act.readingApp()?.let { (label, intent) ->
+            box.addView(act.linkText("Buka $label (bacaan dan doa)  \u203A") {
+                dlg?.dismiss()
+                try { act.startActivity(intent) } catch (e: Exception) { Toast.makeText(act, "Tidak bisa membuka $label", Toast.LENGTH_SHORT).show() }
+            })
+        }
+        box.addView(act.linkText("Cari bacaan hari ini di web  \u203A") {
+            dlg?.dismiss()
             val q = "bacaan harian katolik " + java.text.SimpleDateFormat("d MMMM yyyy", java.util.Locale("id")).format(now)
             try {
                 act.startActivity(
@@ -1408,7 +1416,8 @@ internal class WidgetLayer(
             } catch (e: Exception) {
                 Toast.makeText(act, "Tidak ada peramban untuk membuka pencarian", Toast.LENGTH_SHORT).show()
             }
-        }
+        })
+        dlg = act.showDialog("Kalender liturgi", box, null, "Tutup")
     }
 
     // ---------- Agenda (kalender HP) ----------

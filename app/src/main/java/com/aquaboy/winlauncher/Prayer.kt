@@ -264,8 +264,39 @@ internal fun android.app.Activity.showPrayerDialog(s: Prayer.Slot, onSettings: (
             setPadding(0, 0, 0, dp(8))
         }
     )
+    readingApp()?.let { (label, intent) ->
+        box.addView(linkText("Buka $label untuk teks lengkap  \u203A") {
+            try { startActivity(intent) } catch (e: Exception) { android.widget.Toast.makeText(this, "Tidak bisa membuka $label", android.widget.Toast.LENGTH_SHORT).show() }
+        })
+    }
     box.addView(sv, android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, h))
     showDialog("\u271D " + s.name, box, if (onSettings != null) "Atur jam" else "Tutup", if (onSettings != null) "Tutup" else null) {
         onSettings?.invoke()
     }
 }
+
+
+/** Aplikasi bacaan/doa pilihan pengguna (mis. eKatolik): pasangan nama dan intent peluncurnya, atau null. */
+internal fun android.app.Activity.readingApp(): Pair<String, android.content.Intent>? {
+    val sp = getSharedPreferences(Th.PREFS, android.content.Context.MODE_PRIVATE)
+    val cn = android.content.ComponentName.unflattenFromString(sp.getString("reading_app", "") ?: "") ?: return null
+    return try {
+        val label = packageManager.getActivityInfo(cn, 0).loadLabel(packageManager).toString()
+        label to android.content.Intent(android.content.Intent.ACTION_MAIN)
+            .addCategory(android.content.Intent.CATEGORY_LAUNCHER)
+            .setComponent(cn)
+            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+    } catch (e: Throwable) {
+        null
+    }
+}
+
+/** Tautan teks kecil berwarna aksen. */
+internal fun android.app.Activity.linkText(text: String, onClick: () -> Unit): android.widget.TextView =
+    android.widget.TextView(this).apply {
+        this.text = text
+        setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13f)
+        setTextColor(Th.accent)
+        setPadding(0, dp(8), 0, dp(4))
+        setOnClickListener { onClick() }
+    }
