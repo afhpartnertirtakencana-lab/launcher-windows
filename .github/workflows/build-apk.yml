@@ -1,5 +1,8 @@
 name: Build APK
 
+permissions:
+  contents: write
+
 on:
   push:
     branches: [main, master]
@@ -50,3 +53,16 @@ jobs:
         with:
           name: WinLauncher-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Publikasikan rilis (untuk pemeriksa pembaruan di aplikasi)
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ver=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts | head -1)
+          cp app/build/outputs/apk/debug/app-debug.apk "WinLauncher-$ver.apk"
+          if gh release view "v$ver" > /dev/null 2>&1; then
+            gh release upload "v$ver" "WinLauncher-$ver.apk" --clobber
+          else
+            gh release create "v$ver" "WinLauncher-$ver.apk" --title "Win Launcher $ver" --notes "Win Launcher $ver. Unduh APK di bawah, lalu pasang sebagai pembaruan." --latest
+          fi
