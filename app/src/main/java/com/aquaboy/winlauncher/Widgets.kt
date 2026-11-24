@@ -229,7 +229,13 @@ internal class WidgetLayer(
             row.addView(col, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
             box.addView(row)
         }
-        dialog = act.showDialog("Tambah widget", box, null, "Tutup")
+        // Daftar panjang harus bisa digulir (terutama saat landscape yang tingginya pendek).
+        val sv = android.widget.ScrollView(act)
+        sv.addView(box)
+        val h = (act.resources.displayMetrics.heightPixels * 0.62f).toInt()
+        val holder = FrameLayout(act)
+        holder.addView(sv, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, h))
+        dialog = act.showDialog("Tambah widget", holder, null, "Tutup")
     }
 
     private fun add(t: WType) {

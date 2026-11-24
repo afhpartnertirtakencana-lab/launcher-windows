@@ -21,6 +21,7 @@ import android.view.Window
 import android.view.WindowInsets
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
 import java.text.SimpleDateFormat
@@ -277,7 +278,10 @@ fun Activity.showDialog(
     }
     box.addView(tv(title, 18f, Th.p.text, true))
     if (body != null) {
-        box.addView(body, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(14) })
+        // Isi yang tinggi (mis. daftar panjang saat landscape) harus bisa digulir, bukan terpotong.
+        val maxBody = (resources.displayMetrics.heightPixels * 0.9f).toInt() - dp(190)
+        val content: View = if (body is ScrollView) body else MaxHeightScroll(this, max(dp(120), maxBody)).apply { addView(body) }
+        box.addView(content, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(14) })
     }
     val row = ll(false, Gravity.END)
     if (cancelText != null) row.addView(textButton(cancelText, false) { d.dismiss() })
@@ -530,4 +534,12 @@ internal fun scaledForLandscape(base: android.content.Context): android.content.
     n.smallestScreenWidthDp = n.screenHeightDp
     landScaled = true
     return base.createConfigurationContext(n)
+}
+
+
+/** ScrollView yang tingginya dibatasi; di bawah batas ia seukuran isinya. */
+internal class MaxHeightScroll(ctx: Context, private val maxH: Int) : ScrollView(ctx) {
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(maxH, MeasureSpec.AT_MOST))
+    }
 }
