@@ -50,7 +50,9 @@ internal enum class WType(
     SEARCH("Pencarian", "Kolom cari cepat ke menu Start", GlyphView.Kind.SEARCH, 260, 80),
     WEATHER("Cuaca", "Suhu dan kondisi cuaca kota pilihan", GlyphView.Kind.SUN, 220, 140),
     MUSIC("Pemutar musik", "Kontrol musik yang sedang diputar", GlyphView.Kind.PHOTO, 260, 120),
-    PRAYER("Waktu doa", "Waktu doa Katolik berikutnya dengan hitung mundur", GlyphView.Kind.BELL, 220, 120)
+    PRAYER("Waktu doa", "Waktu doa Katolik berikutnya dengan hitung mundur", GlyphView.Kind.BELL, 220, 120),
+    TODO("Daftar tugas", "Daftar tugas dengan kotak centang, ketuk untuk mengelola", GlyphView.Kind.CHECK, 240, 180),
+    COUNTDOWN("Hitung mundur", "Berapa hari lagi menuju tanggal penting", GlyphView.Kind.PIN, 200, 120)
 }
 
 internal class WItem(val id: Long, val type: WType, var x: Int, var y: Int, var w: Int, var h: Int) {
@@ -477,6 +479,8 @@ internal class WidgetLayer(
         WType.WEATHER -> buildWeather(it.size)
         WType.MUSIC -> buildMusic(it.size)
         WType.PRAYER -> buildPrayer(it.size)
+        WType.TODO -> buildTodo(it)
+        WType.COUNTDOWN -> buildCountdown(it)
     }
 
     private fun buildClock(size: Int): Pair<View, () -> Unit> {
@@ -1133,6 +1137,215 @@ internal class WidgetLayer(
             act.promptDialog("Catatan", prefs.getString(key, "") ?: "", "Tulis catatan", "Simpan") { v ->
                 prefs.edit().putString(key, v).apply()
                 upd()
+            }
+        }
+        return c to upd
+    }
+
+    // ---------- Daftar tugas ----------
+    private fun todoLoad(key: String): MutableList<Pair<Boolean, String>> {
+        val out = ArrayList<Pair<Boolean, String>>()
+        for (line in (prefs.getString(key, "") ?: "").split("\n")) {
+            if (line.length < 2 || line[1] != '|') continue
+            out.add((line[0] == '1') to line.substring(2))
+        }
+        return out
+    }
+
+    private fun todoSave(key: String, list: List<Pair<Boolean, String>>) {
+        prefs.edit().putString(key, list.joinToString("\n") { (if (it.first) "1|" else "0|") + it.second.replace("\n", " ") }).apply()
+    }
+
+    private fun buildTodo(it: WItem): Pair<View, () -> Unit> {
+        val key = "widget_todo_${it.id}"
+        val c = card()
+        c.gravity = Gravity.TOP
+        val head = act.tv("", 12f, Th.accent, true).apply { maxLines = 1 }
+        c.addView(head)
+        val max = intArrayOf(3, 5, 8)[it.size]
+        val rows = ArrayList<TextView>()
+        for (i in 0 until max) {
+            val r = act.tv("", floatArrayOf(12f, 13f, 15f)[it.size], Th.p.text).apply {
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+                setPadding(0, act.dp(3), 0, 0)
+            }
+            rows.add(r)
+            c.addView(r)
+        }
+        val upd: () -> Unit = {
+            val list = todoLoad(key)
+            val open = list.count { p -> !p.first }
+            head.text = if (list.isEmpty()) "Daftar tugas" else "Daftar tugas  ·  $open tersisa"
+            // yang belum selesai ditampilkan lebih dulu
+            val shown = list.filter { p -> !p.first } + list.filter { p -> p.first }
+            for ((i, r) in rows.withIndex()) {
+                if (shown.isEmpty() && i == 0) {
+                    r.text = "Ketuk untuk menambah tugas"
+                    r.alpha = 0.55f
+                    r.paintFlags = r.paintFlags and android.graphics.Paint.STRIKE_THRU_TEXT_FLAG.inv()
+                    r.visibility = View.VISIBLE
+                } else if (i < shown.size) {
+                    val p = shown[i]
+                    val more = i == rows.size - 1 && shown.size > rows.size
+                    r.text = if (more) "+ ${shown.size - i} tugas lagi" else (if (p.first) "\u2611  " else "\u2610  ") + p.second
+                    r.alpha = if (p.first && !more) 0.5f else 1f
+                    r.paintFlags = if (p.first && !more) r.paintFlags or android.graphics.Paint.STRIKE_THRU_TEXT_FLAG
+                    else r.paintFlags and android.graphics.Paint.STRIKE_THRU_TEXT_FLAG.inv()
+                    r.visibility = View.VISIBLE
+                } else {
+                    r.visibility = View.GONE
+                }
+            }
+        }
+        c.setOnClickListener { showTodoDialog(key, upd) }
+        return c to upd
+    }
+
+    private fun showTodoDialog(key: String, upd: () -> Unit) {
+        val box = act.ll(true)
+        val listBox = act.ll(true)
+        val input = android.widget.EditText(act).apply {
+            hint = "Tugas baru"
+            setHintTextColor(Th.p.faint)
+            setTextColor(Th.p.text)
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            maxLines = 1
+            isSingleLine = true
+            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
+            background = act.rounded(Th.p.input, act.dpf(14f), Th.p.stroke, act.dp(1))
+            setPadding(act.dp(12), act.dp(9), act.dp(12), act.dp(9))
+        }
+        lateinit var rebuild: () -> Unit
+        rebuild = {
+            listBox.removeAllViews()
+            val list = todoLoad(key)
+            if (list.isEmpty()) {
+                listBox.addView(act.tv("Belum ada tugas.", 13f, Th.p.dim).apply { setPadding(0, act.dp(4), 0, act.dp(8)) })
+            }
+            for ((i, p) in list.withIndex()) {
+                val row = act.ll(false, Gravity.CENTER_VERTICAL).apply { minimumHeight = act.dp(40) }
+                val check = act.tv(if (p.first) "\u2611" else "\u2610", 20f, Th.accent).apply {
+                    setPadding(act.dp(4), 0, act.dp(10), 0)
+                    setOnClickListener {
+                        val l = todoLoad(key)
+                        if (i < l.size) l[i] = !l[i].first to l[i].second
+                        todoSave(key, l)
+                        upd()
+                        rebuild()
+                    }
+                }
+                val text = act.tv(p.second, 14f, Th.p.text).apply {
+                    if (p.first) {
+                        alpha = 0.5f
+                        paintFlags = paintFlags or android.graphics.Paint.STRIKE_THRU_TEXT_FLAG
+                    }
+                }
+                val del = act.tv("\u2715", 16f, Th.p.dim).apply {
+                    setPadding(act.dp(12), act.dp(6), act.dp(6), act.dp(6))
+                    setOnClickListener {
+                        val l = todoLoad(key)
+                        if (i < l.size) l.removeAt(i)
+                        todoSave(key, l)
+                        upd()
+                        rebuild()
+                    }
+                }
+                row.addView(check)
+                row.addView(text, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+                row.addView(del)
+                listBox.addView(row)
+            }
+        }
+        rebuild()
+        fun add() {
+            val v = input.text.toString().trim()
+            if (v.isEmpty()) return
+            val l = todoLoad(key)
+            l.add(false to v.take(80))
+            todoSave(key, l)
+            input.setText("")
+            upd()
+            rebuild()
+        }
+        input.setOnEditorActionListener { _, _, _ ->
+            add()
+            true
+        }
+        val sv = android.widget.ScrollView(act)
+        sv.addView(listBox)
+        val h = minOf(act.dp(40 * max(1, todoLoad(key).size) + 12), (act.resources.displayMetrics.heightPixels * 0.4f).toInt())
+        box.addView(sv, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, h))
+        val addRow = act.ll(false, Gravity.CENTER_VERTICAL).apply { setPadding(0, act.dp(8), 0, 0) }
+        addRow.addView(input, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        addRow.addView(act.textButton("Tambah", true) { add() }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { leftMargin = act.dp(8) })
+        box.addView(addRow)
+        val d = act.showDialog("Daftar tugas", box, null, "Tutup")
+        d.setOnDismissListener { upd() }
+    }
+
+    // ---------- Hitung mundur ----------
+    private fun buildCountdown(it: WItem): Pair<View, () -> Unit> {
+        val key = "widget_cd_${it.id}"
+        val c = card()
+        val title = act.tv("", floatArrayOf(11f, 12f, 14f)[it.size], Th.accent, true).apply {
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        }
+        val big = act.tv("", floatArrayOf(30f, 40f, 54f)[it.size], Th.p.text, true).apply { maxLines = 1 }
+        val sub = act.tv("", floatArrayOf(11f, 12f, 14f)[it.size], Th.p.dim).apply {
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        }
+        c.addView(title)
+        c.addView(big)
+        c.addView(sub)
+        val upd: () -> Unit = {
+            val raw = prefs.getString(key, "") ?: ""
+            val parts = raw.split("|", limit = 2)
+            val date = parts.getOrNull(0)?.split("-")?.mapNotNull { n -> n.toIntOrNull() }
+            if (date == null || date.size != 3) {
+                title.text = "Hitung mundur"
+                big.text = "--"
+                sub.text = "Ketuk untuk mengatur tanggal"
+            } else {
+                val target = java.util.Calendar.getInstance().apply {
+                    set(date[0], date[1] - 1, date[2], 0, 0, 0)
+                    set(java.util.Calendar.MILLISECOND, 0)
+                }
+                val today = java.util.Calendar.getInstance().apply {
+                    set(java.util.Calendar.HOUR_OF_DAY, 0)
+                    set(java.util.Calendar.MINUTE, 0)
+                    set(java.util.Calendar.SECOND, 0)
+                    set(java.util.Calendar.MILLISECOND, 0)
+                }
+                val days = Math.round((target.timeInMillis - today.timeInMillis) / 86400000.0).toInt()
+                title.text = parts.getOrNull(1)?.ifBlank { null } ?: "Hitung mundur"
+                when {
+                    days > 0 -> { big.text = days.toString(); sub.text = "hari lagi" }
+                    days == 0 -> { big.text = "Hari ini"; sub.text = "" }
+                    else -> { big.text = (-days).toString(); sub.text = "hari yang lalu" }
+                }
+            }
+        }
+        c.setOnClickListener {
+            val raw = prefs.getString(key, "") ?: ""
+            val parts = raw.split("|", limit = 2)
+            act.promptDialog("Judul hitung mundur", parts.getOrNull(1) ?: "", "Contoh: Natal", "Lanjut") { name ->
+                val cal = java.util.Calendar.getInstance()
+                val old = parts.getOrNull(0)?.split("-")?.mapNotNull { n -> n.toIntOrNull() }
+                if (old != null && old.size == 3) cal.set(old[0], old[1] - 1, old[2])
+                android.app.DatePickerDialog(
+                    Th.themed(act),
+                    { _, y, m, d ->
+                        prefs.edit().putString(key, "%04d-%02d-%02d|%s".format(y, m + 1, d, name.replace("|", " "))).apply()
+                        upd()
+                    },
+                    cal.get(java.util.Calendar.YEAR),
+                    cal.get(java.util.Calendar.MONTH),
+                    cal.get(java.util.Calendar.DAY_OF_MONTH)
+                ).show()
             }
         }
         return c to upd

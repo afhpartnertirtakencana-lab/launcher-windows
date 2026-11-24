@@ -544,9 +544,16 @@ class MainActivity : Activity() {
     }
 
     private fun setupDesktopInteractions() {
+        val gd = android.view.GestureDetector(this, object : android.view.GestureDetector.SimpleOnGestureListener() {
+            override fun onDoubleTap(e: MotionEvent): Boolean {
+                onDesktopDoubleTap()
+                return true
+            }
+        })
         desktop.setOnTouchListener { _, e ->
             lastX = e.rawX
             lastY = e.rawY
+            gd.onTouchEvent(e)
             false
         }
         desktop.setOnLongClickListener {
@@ -556,6 +563,18 @@ class MainActivity : Activity() {
         desktop.addOnLayoutChangeListener { _, _, t, _, b, _, oldT, _, oldB ->
             // Jangan ubah isi desktop di tengah proses layout: tunda sampai selesai.
             if (b - t != oldB - oldT) scheduleDesktopRender()
+        }
+    }
+
+    /** Ketuk dua kali di area kosong desktop (aksi diatur di Personalisasi > Gestur). */
+    private fun onDesktopDoubleTap() {
+        if (::scrim.isInitialized && scrim.visibility != View.GONE) return
+        when (pi("dbl_action", 1)) {
+            1 -> if (!LockService.lock()) {
+                Toast.makeText(this, "Aktifkan dulu: Pengaturan > Personalisasi > Gestur > Izin kunci layar", Toast.LENGTH_LONG).show()
+            }
+            2 -> openStart(false)
+            3 -> openStart(true)
         }
     }
 
@@ -1182,6 +1201,29 @@ class MainActivity : Activity() {
     private var deskCellH = 1
     private var deskRows = 1
 
+    // Folder di desktop: tersimpan di "folders" (baris "id|nama|kunci1,kunci2").
+    internal class DeskFolder(val id: String, var name: String, val keys: MutableList<String>)
+
+    private val folders = ArrayList<DeskFolder>()
+
+    private fun loadFolders() {
+        folders.clear()
+        for (line in (prefs.getString("folders", "") ?: "").split("\n")) {
+            val p = line.split("|")
+            if (p.size != 3 || p[0].isBlank()) continue
+            folders.add(DeskFolder(p[0], p[1], p[2].split(",").filter { it.isNotBlank() }.toMutableList()))
+        }
+    }
+
+    private fun saveFolders() {
+        prefs.edit().putString(
+            "folders",
+            folders.joinToString("\n") { "${it.id}|${it.name.replace("|", " ").replace("\n", " ")}|${it.keys.joinToString(",")}" }
+        ).apply()
+    }
+
+    private fun folderById(id: String): DeskFolder? = folders.firstOrNull { it.id == id }
+
     private fun loadDeskPos(): Map<String, Pair<Int, Int>> {
         val out = HashMap<String, Pair<Int, Int>>()
         for (line in (prefs.getString("deskpos", "") ?: "").split("\n")) {
@@ -1195,7 +1237,7 @@ class MainActivity : Activity() {
     }
 
     private fun saveDeskPos() {
-        val pins = desktopPins.toSet()
+        val pins = desktopPins.toSet() + folders.map { "folder:" + it.id }
         val text = deskCells.filterKeys { it in pins }.entries.joinToString("\n") { "${it.key}|${it.value.first}|${it.value.second}" }
         prefs.edit().putString("deskpos", text).apply()
     }
@@ -1216,23 +1258,36 @@ class MainActivity : Activity() {
         deskCellW = dp(big + 44)
         deskCellH = dp(big + 52)
         deskRows = max(1, h / deskCellH)
-        val pins = desktopPins.mapNotNull { byKey[it] }
+        loadFolders()
+        val inFolder = HashSet<String>()
+        var changed = false
+        for (f in folders) {
+            val before = f.keys.size
+            f.keys.retainAll { it in desktopPins && it in byKey }
+            if (f.keys.size != before) changed = true
+            inFolder.addAll(f.keys)
+        }
+        if (folders.removeAll { it.keys.isEmpty() }) changed = true
+        if (changed) saveFolders()
+        val items = ArrayList<String>()
+        for (k in desktopPins) if (k in byKey && k !in inFolder) items.add(k)
+        for (f in folders) items.add("folder:" + f.id)
         val saved = loadDeskPos()
         val used = HashSet<Pair<Int, Int>>()
         deskCells.clear()
         // 1) ikon yang sudah punya posisi pilihan pengguna
-        for (app in pins) {
-            val p = saved[app.key] ?: continue
+        for (k in items) {
+            val p = saved[k] ?: continue
             if (p !in used && deskCellFree(p.first, p.second, true)) {
-                deskCells[app.key] = p
+                deskCells[k] = p
                 used.add(p)
             }
         }
         // 2) sisanya mengalir mengitari widget dan ikon lain, jadi tidak pernah tertutup
         var col = 0
         var row = 0
-        for (app in pins) {
-            if (app.key in deskCells) continue
+        for (k in items) {
+            if (k in deskCells) continue
             var guard = 0
             while (guard++ < 600) {
                 if (Pair(col, row) !in used && deskCellFree(col, row, false)) break
@@ -1240,46 +1295,232 @@ class MainActivity : Activity() {
                 if (row >= deskRows) { row = 0; col++ }
             }
             val p = Pair(col, row)
-            deskCells[app.key] = p
+            deskCells[k] = p
             used.add(p)
         }
-        for (app in pins) {
-            val p = deskCells[app.key] ?: continue
+        for (k in items) {
+            val p = deskCells[k] ?: continue
             val lp = FrameLayout.LayoutParams(deskCellW, deskCellH)
             lp.leftMargin = p.first * deskCellW
             lp.topMargin = p.second * deskCellH
-            desktop.addView(desktopIcon(app, big), lp)
+            val view = if (k.startsWith("folder:")) {
+                val f = folderById(k.removePrefix("folder:")) ?: continue
+                folderTile(f, big)
+            } else {
+                desktopIcon(byKey[k] ?: continue, big)
+            }
+            desktop.addView(view, lp)
         }
     }
 
-    /** Ikon dilepas setelah diseret: pindah ke sel baru (tukar bila terisi), atau kembali bila tidak muat. */
-    private fun dropDeskIcon(v: View, app: AppEntry) {
+    /**
+     * Ikon/folder dilepas setelah diseret. Dilepas di tengah ikon lain: jadi folder (atau masuk folder).
+     * Dilepas di tepi sel: pindah/tukar tempat. Kembali bila tidak muat.
+     */
+    private fun dropDeskItem(v: View, key: String, app: AppEntry?) {
         val lp = v.layoutParams as FrameLayout.LayoutParams
         val cx = lp.leftMargin + v.width / 2f + v.translationX
         val cy = lp.topMargin + v.height / 2f + v.translationY
         val c = Math.floor((cx / deskCellW).toDouble()).toInt()
         val r = Math.floor((cy / deskCellH).toDouble()).toInt()
-        val old = deskCells[app.key]
+        val old = deskCells[key]
+        val otherKey = deskCells.entries.firstOrNull { it.key != key && it.value == Pair(c, r) }?.key
+        if (app != null && otherKey != null) {
+            val fx = cx - c * deskCellW
+            val fy = cy - r * deskCellH
+            val center = fx > deskCellW * 0.25f && fx < deskCellW * 0.75f && fy > deskCellH * 0.25f && fy < deskCellH * 0.75f
+            if (center) {
+                if (otherKey.startsWith("folder:")) {
+                    addToFolder(otherKey.removePrefix("folder:"), app.key)
+                    return
+                }
+                val other = byKey[otherKey]
+                if (other != null) {
+                    createFolder(app, other, Pair(c, r))
+                    return
+                }
+            }
+        }
         if (old != null && deskCellFree(c, r, true) && Pair(c, r) != old) {
-            val other = deskCells.entries.firstOrNull { it.key != app.key && it.value == Pair(c, r) }?.key
-            if (other != null) deskCells[other] = old
-            deskCells[app.key] = Pair(c, r)
+            if (otherKey != null) deskCells[otherKey] = old
+            deskCells[key] = Pair(c, r)
             saveDeskPos()
         }
         desktop.post { renderDesktop() }
     }
 
-    private fun desktopIcon(app: AppEntry, sizeDp: Int): View {
+    private fun createFolder(a: AppEntry, b: AppEntry, cell: Pair<Int, Int>) {
+        loadFolders()
+        for (f in folders) f.keys.removeAll { it == a.key || it == b.key }
+        val id = System.currentTimeMillis().toString(36)
+        folders.add(DeskFolder(id, "Folder", mutableListOf(b.key, a.key)))
+        saveFolders()
+        deskCells["folder:$id"] = cell
+        saveDeskPos()
+        renderDesktop()
+        promptDialog("Nama folder", "Folder", "Nama folder", "Simpan") { n ->
+            if (n.isNotBlank()) {
+                loadFolders()
+                folderById(id)?.let { it.name = n.take(24) }
+                saveFolders()
+                renderDesktop()
+            }
+        }
+    }
+
+    private fun addToFolder(id: String, appKey: String) {
+        loadFolders()
+        for (f in folders) f.keys.remove(appKey)
+        folderById(id)?.keys?.add(appKey)
+        saveFolders()
+        desktop.post { renderDesktop() }
+    }
+
+    private fun folderTile(f: DeskFolder, sizeDp: Int): View {
+        val size = dp(64)
+        val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val cv = Canvas(bmp)
+        val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+        val box = android.graphics.RectF(dp(1).toFloat(), dp(1).toFloat(), (size - dp(1)).toFloat(), (size - dp(1)).toFloat())
+        p.color = Th.withAlpha(Th.blend(Th.accent, 0xFFFFFFFF.toInt(), 0.30f), 0x99)
+        cv.drawRoundRect(box, size * 0.26f, size * 0.26f, p)
+        p.style = android.graphics.Paint.Style.STROKE
+        p.strokeWidth = dp(1).toFloat()
+        p.color = 0x88FFFFFF.toInt()
+        cv.drawRoundRect(box, size * 0.26f, size * 0.26f, p)
+        val ip = android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG)
+        val pad = size * 0.12f
+        val cell = (size - 2 * pad) / 2f
+        val ic = cell * 0.86f
+        for ((i, a) in f.keys.mapNotNull { byKey[it] }.take(4).withIndex()) {
+            val l = pad + (i % 2) * cell + (cell - ic) / 2f
+            val tp = pad + (i / 2) * cell + (cell - ic) / 2f
+            cv.drawBitmap(iconOf(a), null, android.graphics.RectF(l, tp, l + ic, tp + ic), ip)
+        }
+        val id = f.id
+        return desktopTile("folder:$id", f.name, bmp, null, { folderById(id)?.let { openFolder(it) } }, { v -> folderMenu(v, id) }, sizeDp)
+    }
+
+    private fun folderMenu(anchorView: View, id: String) {
+        val pop = PopupMenu(Th.themed(this), anchorView)
+        pop.menu.add(0, 1, 0, "Buka folder")
+        pop.menu.add(0, 2, 0, "Ganti nama")
+        pop.menu.add(0, 3, 0, "Bubarkan folder")
+        pop.setOnMenuItemClickListener { item ->
+            val f = folderById(id)
+            if (f != null) when (item.itemId) {
+                1 -> openFolder(f)
+                2 -> renameFolder(id)
+                3 -> {
+                    folders.removeAll { it.id == id }
+                    saveFolders()
+                    renderDesktop()
+                }
+            }
+            true
+        }
+        pop.show()
+    }
+
+    private fun renameFolder(id: String) {
+        val cur = folderById(id)?.name ?: return
+        promptDialog("Ganti nama folder", cur, "Nama folder", "Simpan") { n ->
+            if (n.isNotBlank()) {
+                loadFolders()
+                folderById(id)?.let { it.name = n.take(24) }
+                saveFolders()
+                renderDesktop()
+            }
+        }
+    }
+
+    private fun openFolder(f: DeskFolder) {
+        val id = f.id
+        val apps = f.keys.mapNotNull { byKey[it] }
+        var dlg: android.app.Dialog? = null
+        val cols = 4
+        val box = ll(true)
+        var row: LinearLayout? = null
+        for ((i, a) in apps.withIndex()) {
+            if (i % cols == 0) {
+                row = ll(false)
+                box.addView(row, LinearLayout.LayoutParams(MATCH, WRAP))
+            }
+            val cell = ll(true, Gravity.CENTER_HORIZONTAL).apply {
+                setPadding(dp(4), dp(8), dp(4), dp(8))
+                background = ripple(dpf(10f))
+            }
+            cell.addView(ImageView(this).apply { setImageBitmap(iconOf(a)) }, LinearLayout.LayoutParams(dp(44), dp(44)))
+            cell.addView(
+                tv(a.label, 11f, Th.p.text).apply {
+                    maxLines = 2
+                    ellipsize = TextUtils.TruncateAt.END
+                    gravity = Gravity.CENTER
+                },
+                LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(4) }
+            )
+            cell.setOnClickListener {
+                dlg?.dismiss()
+                launch(a)
+            }
+            cell.setOnLongClickListener {
+                val pop = PopupMenu(Th.themed(this), cell)
+                pop.menu.add(0, 1, 0, "Keluarkan dari folder")
+                pop.menu.add(0, 2, 0, "Buka dalam jendela")
+                pop.setOnMenuItemClickListener { item ->
+                    when (item.itemId) {
+                        1 -> {
+                            loadFolders()
+                            folderById(id)?.keys?.remove(a.key)
+                            saveFolders()
+                            dlg?.dismiss()
+                            renderDesktop()
+                        }
+                        2 -> {
+                            dlg?.dismiss()
+                            launch(a, true)
+                        }
+                    }
+                    true
+                }
+                pop.show()
+                true
+            }
+            row!!.addView(cell, LinearLayout.LayoutParams(0, WRAP, 1f))
+        }
+        val rest = (cols - apps.size % cols) % cols
+        for (i in 0 until rest) row?.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
+        val sv = android.widget.ScrollView(this)
+        sv.addView(box)
+        val rows = (apps.size + cols - 1) / cols
+        val h = minOf(dp(84 * max(1, rows)), (resources.displayMetrics.heightPixels * 0.55f).toInt())
+        val holder = FrameLayout(this)
+        holder.addView(sv, FrameLayout.LayoutParams(MATCH, h))
+        dlg = showDialog(f.name, holder, "Ganti nama", "Tutup") { renameFolder(id) }
+    }
+
+    private fun desktopIcon(app: AppEntry, sizeDp: Int): View =
+        desktopTile(app.key, app.label, iconOf(app), app, { launch(app) }, { v -> showAppMenu(v, app) }, sizeDp)
+
+    private fun desktopTile(
+        key: String,
+        label: String,
+        bmp: Bitmap,
+        app: AppEntry?,
+        onTap: () -> Unit,
+        onMenu: (View) -> Unit,
+        sizeDp: Int
+    ): View {
         val v = ll(true, Gravity.CENTER_HORIZONTAL).apply {
             setPadding(dp(4), dp(8), dp(4), dp(4))
             background = ripple(dpf(6f))
         }
         v.addView(
-            ImageView(this).apply { setImageBitmap(iconOf(app)) },
+            ImageView(this).apply { setImageBitmap(bmp) },
             LinearLayout.LayoutParams(dp(sizeDp), dp(sizeDp))
         )
         // Latar belakang wallpaper bisa terang atau gelap, jadi label memakai bayangan.
-        val t = tv(app.label, 12f, 0xFFFFFFFF.toInt()).apply {
+        val t = tv(label, 12f, 0xFFFFFFFF.toInt()).apply {
             maxLines = 2
             ellipsize = TextUtils.TruncateAt.END
             gravity = Gravity.CENTER
@@ -1291,7 +1532,7 @@ class MainActivity : Activity() {
             maxWidth = dp(sizeDp + 38)
         }
         v.addView(t, LinearLayout.LayoutParams(WRAP, WRAP).apply { topMargin = dp(4) })
-        v.setOnClickListener { launch(app) }
+        v.setOnClickListener { onTap() }
         // Ketuk = buka. Tahan lalu geser = pindahkan. Tahan tanpa geser = menu.
         val slop = ViewConfiguration.get(this).scaledTouchSlop
         var downX = 0f
@@ -1337,10 +1578,10 @@ class MainActivity : Activity() {
                 MotionEvent.ACTION_UP -> {
                     handler.removeCallbacks(longPress)
                     when {
-                        dragging -> dropDeskIcon(v, app)
+                        dragging -> dropDeskItem(v, key, app)
                         longFired -> {
                             reset()
-                            showAppMenu(v, app)
+                            onMenu(v)
                         }
                         abs(e.rawX - downX) <= slop && abs(e.rawY - downY) <= slop -> v.performClick()
                     }

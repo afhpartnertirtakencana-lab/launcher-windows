@@ -103,6 +103,16 @@ class SettingsActivity : Activity() {
         "accounts", "time", "access", "privacy", "update"
     )
 
+    private var awaitAccess = false
+
+    override fun onResume() {
+        super.onResume()
+        if (awaitAccess) {
+            awaitAccess = false
+            showPage(current)
+        }
+    }
+
     private var current = "home"
     private var navAvatar: FrameLayout? = null
     private var navName: TextView? = null
@@ -379,6 +389,17 @@ class SettingsActivity : Activity() {
                     java.io.File(filesDir, "wp_land.jpg").delete()
                     Th.bump(this)
                     showPage(current)
+                },
+                SHeader("Gestur"),
+                SSegment(GlyphView.Kind.HOME, "Ketuk dua kali di desktop", "Di area kosong desktop (bukan di ikon atau widget)",
+                    listOf("Tidak ada", "Kunci layar", "Start", "Cari"), "dbl_action", 1),
+                SLink(GlyphView.Kind.POWER, "Izin kunci layar",
+                    if (LockService.instance != null) "Aktif. Layar bisa dimatikan dengan ketuk dua kali" else "Belum aktif. Ketuk, lalu aktifkan Win Launcher di Aksesibilitas") {
+                    awaitAccess = true
+                    startIntent(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                },
+                SLink(GlyphView.Kind.INFO, "Tombol aksesibilitas abu-abu?", "Android 13: buka Info aplikasi, menu titik tiga, lalu Izinkan pengaturan terbatas") {
+                    startIntent(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.fromParts("package", packageName, null)))
                 },
                 SHeader("Efek"),
                 SToggle(GlyphView.Kind.PERSONALIZE, "Efek transparansi", "Panel Start dan taskbar tembus pandang", "transparency", true),
