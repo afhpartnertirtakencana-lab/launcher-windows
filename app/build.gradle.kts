@@ -11,8 +11,14 @@ android {
         applicationId = "com.aquaboy.winlauncher"
         minSdk = 24
         targetSdk = 35
-        versionCode = 43
-        versionName = "2.14.2"
+        versionCode = 44
+        versionName = "2.15.0"
+        // Alamat repositori ("pemilik/nama") untuk pemeriksa pembaruan; diisi otomatis oleh GitHub Actions.
+        buildConfigField("String", "UPDATE_REPO", "\"${System.getenv("GITHUB_REPOSITORY") ?: ""}\"")
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     // Kunci tetap supaya setiap build bertanda tangan sama dan bisa dipasang sebagai pembaruan.
