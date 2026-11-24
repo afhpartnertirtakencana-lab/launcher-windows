@@ -1,0 +1,2570 @@
+package com.aquaboy.winlauncher
+
+import android.app.Activity
+import android.app.ActivityOptions
+import android.content.BroadcastReceiver
+import android.content.ComponentName
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.content.SharedPreferences
+import android.content.pm.PackageManager
+import android.content.res.ColorStateList
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Rect
+import android.graphics.Typeface
+import android.media.AudioManager
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.Uri
+import android.os.BatteryManager
+import android.os.Build
+import android.os.Bundle
+import android.os.Environment
+import android.os.Handler
+import android.os.Looper
+import android.os.PowerManager
+import android.provider.AlarmClock
+import android.provider.MediaStore
+import android.provider.Settings
+import android.text.Editable
+import android.text.InputType
+import android.text.TextUtils
+import android.text.TextWatcher
+import android.text.format.DateFormat
+import android.util.TypedValue
+import android.view.Gravity
+import android.view.HapticFeedbackConstants
+import android.view.KeyEvent
+import android.view.ViewConfiguration
+import android.view.MotionEvent
+import android.view.View
+import android.view.WindowInsetsController
+import android.view.WindowInsets
+import android.view.WindowManager
+import android.view.animation.DecelerateInterpolator
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
+import android.widget.CalendarView
+import android.widget.EditText
+import android.widget.FrameLayout
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.PopupMenu
+import android.widget.ScrollView
+import android.widget.SeekBar
+import android.widget.Space
+import android.widget.TextView
+import android.widget.Toast
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
+
+internal data class AppEntry(val label: String, val pkg: String, val cn: ComponentName) {
+    val key: String = cn.flattenToString()
+}
+
+internal class QsTile(
+    val kind: GlyphView.Kind,
+    val label: String,
+    val active: () -> Boolean,
+    val click: () -> Unit
+)
+
+class MainActivity : Activity() {
+    override fun attachBaseContext(newBase: android.content.Context) {
+        super.attachBaseContext(scaledForLandscape(newBase))
+    }
+
+
+    private enum class Mode { PINNED, ALL }
+
+    private companion object {
+        const val P_NONE = 0
+        const val P_START = 1
+        const val P_CAL = 2
+        const val P_QS = 3
+    }
+
+    // ---------- state ----------
+    private lateinit var pm: PackageManager
+    private lateinit var prefs: SharedPreferences
+    private val handler = Handler(Looper.getMainLooper())
+    private val audio by lazy { getSystemService(Context.AUDIO_SERVICE) as AudioManager }
+
+    private var apps: List<AppEntry> = emptyList()      // yang tampil di Start dan pencarian
+    private var allApps: List<AppEntry> = emptyList()   // semua, termasuk yang disembunyikan
+    private var byKey: Map<String, AppEntry> = emptyMap()
+    private val icons = HashMap<String, Bitmap>()
+
+    private var startPins: MutableList<String> = mutableListOf()
+    private var taskbarPins: MutableList<String> = mutableListOf()
+    private var desktopPins: MutableList<String> = mutableListOf()
+    private var recents: MutableList<String> = mutableListOf()
+
+    private var useSystemWallpaper = false
+    private var mode = Mode.PINNED
+    private var query = ""
+    private var suppressWatcher = false
+    private var panel = P_NONE
+    private var tbShown = true
+    private lateinit var edgeHandle: View
+    private val hideTaskbarRunnable = Runnable {
+        if (autoHide() && panel == P_NONE) setTaskbarShown(false)
+    }
+    private var seenRev = 0
+    private var askedWriteSettings = false
+
+    private var insL = 0
+    private var insT = 0
+    private var insR = 0
+    private var insB = 0
+    private var imeH = 0
+    private var lastX = 0f
+    private var lastY = 0f
+
+    private val tablet: Boolean by lazy { resources.configuration.smallestScreenWidthDp >= 600 }
+
+    // ---------- views ----------
+    private lateinit var root: FrameLayout
+    private lateinit var wallpaperView: WallpaperView
+    private lateinit var desktop: FrameLayout
+    private var widgetLayer: WidgetLayer? = null
+    private lateinit var scrim: View
+    private lateinit var anchor: View
+
+    private lateinit var startPanel: LinearLayout
+    private lateinit var startScroll: ScrollView
+    private lateinit var startContent: LinearLayout
+    private lateinit var searchInput: EditText
+
+    private lateinit var calPanel: ScrollView
+    private lateinit var calTime: TextView
+    private lateinit var calDate: TextView
+
+    private lateinit var qsPanel: LinearLayout
+    private lateinit var qsGrid: LinearLayout
+    private lateinit var qsBatt: TextView
+    private lateinit var brightSeek: SeekBar
+    private lateinit var volSeek: SeekBar
+
+    private lateinit var taskbar: FrameLayout
+    private lateinit var center: LinearLayout
+    private lateinit var startBtn: FrameLayout
+    private lateinit var searchBtn: FrameLayout
+    private lateinit var startPill: View
+    private lateinit var netGlyph: GlyphView
+    private lateinit var volGlyph: GlyphView
+    private lateinit var battGlyph: GlyphView
+    private lateinit var timeText: TextView
+    private lateinit var dateText: TextView
+
+    // ---------- preferensi ----------
+    private fun pb(k: String, d: Boolean) = prefs.getBoolean(k, d)
+    private fun pi(k: String, d: Int) = prefs.getInt(k, d)
+
+    private fun tbHeight(): Int = dp(if (tablet) 52 else 48)
+    private fun tbIconDp(): Int = intArrayOf(22, 26, 30)[clampInt(pi("tb_size", 1), 0, 2)]
+    private fun deskIconDp(): Int = intArrayOf(36, 44, 56)[clampInt(pi("desk_size", 1), 0, 2)]
+
+    private fun load(key: String): MutableList<String> =
+        (prefs.getString(key, "") ?: "").split("\n").filter { it.isNotEmpty() }.toMutableList()
+
+    private fun save(key: String, list: List<String>) {
+        prefs.edit().putString(key, list.joinToString("\n")).apply()
+    }
+
+    private fun deviceName(): String {
+        val n = try {
+            Settings.Global.getString(contentResolver, "device_name")
+        } catch (e: Exception) {
+            null
+        }
+        return if (n.isNullOrBlank()) Build.MODEL else n
+    }
+
+    // ---------- lifecycle ----------
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        Th.load(this)
+        pm = packageManager
+        prefs = getSharedPreferences(Th.PREFS, MODE_PRIVATE)
+        seenRev = prefs.getInt("rev", 0)
+        useSystemWallpaper = pb("syswp", false)
+        setupWindow()
+        buildUi()
+        loadApps()
+        refreshAll()
+        applyImmersive()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        Updater.autoCheck(this)
+        reg(timeReceiver, IntentFilter().apply {
+            addAction(Intent.ACTION_TIME_TICK)
+            addAction(Intent.ACTION_TIME_CHANGED)
+            addAction(Intent.ACTION_TIMEZONE_CHANGED)
+        })
+        reg(battReceiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED))?.let { updateBattery(it) }
+        reg(pkgReceiver, IntentFilter().apply {
+            addAction(Intent.ACTION_PACKAGE_ADDED)
+            addAction(Intent.ACTION_PACKAGE_REMOVED)
+            addAction(Intent.ACTION_PACKAGE_CHANGED)
+            addDataScheme("package")
+        })
+        registerNet()
+        updateClock()
+        Prayer.scheduleAll(this)
+        Badges.onChange = {
+            handler.removeCallbacks(badgeRefresh)
+            handler.postDelayed(badgeRefresh, 400)
+        }
+        // Notifikasi bisa berubah saat launcher di latar belakang (mis. sedang membuka WhatsApp):
+        // saat kembali, bandingkan dengan yang sedang tergambar dan segarkan bila berbeda.
+        ensureBadgeListener()
+        if (Badges.counts != badgeSnapshot) {
+            handler.removeCallbacks(badgeRefresh)
+            handler.postDelayed(badgeRefresh, 150)
+        }
+        // Penerima pemasangan hanya aktif saat launcher terlihat. Kalau ada aplikasi
+        // dipasang/dihapus saat launcher di latar belakang, daftar dimuat ulang di sini.
+        if (appListChanged()) {
+            handler.removeCallbacks(reloadApps)
+            handler.postDelayed(reloadApps, 300)
+        }
+    }
+
+    private fun appListChanged(): Boolean = try {
+        val i = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val selfMain = MainActivity::class.java.name
+        val now = HashSet<String>()
+        for (ri in pm.queryIntentActivities(i, 0)) {
+            val ai = ri.activityInfo ?: continue
+            if (ai.packageName == packageName && ai.name == selfMain) continue
+            now.add(ComponentName(ai.packageName, ai.name).flattenToString())
+        }
+        now != byKey.keys
+    } catch (e: Exception) {
+        false
+    }
+
+    override fun onStop() {
+        super.onStop()
+        try { unregisterReceiver(timeReceiver) } catch (e: Exception) { }
+        try { unregisterReceiver(battReceiver) } catch (e: Exception) { }
+        try { unregisterReceiver(pkgReceiver) } catch (e: Exception) { }
+        unregisterNet()
+        handler.removeCallbacks(reloadApps)
+        handler.removeCallbacks(badgeRefresh)
+        Badges.onChange = null
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val rev = prefs.getInt("rev", 0)
+        if (rev != seenRev) {
+            // Pengaturan berubah (tema, aksen, taskbar, dll.): bangun ulang seluruh tampilan.
+            seenRev = rev
+            recreate()
+            return
+        }
+        purgeClosedWindows()
+        updateClock()
+        applyImmersive()
+        ensureDesktopFilled()
+        handler.postDelayed({ ensureDesktopFilled() }, 400)
+        handlePrayerIntent(intent)
+        Crash.take(this)?.let { showCrashReport(it) }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 7401) renderDesktop()
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        closePanels()
+        handlePrayerIntent(intent)
+    }
+
+    /** Ketuk notifikasi waktu doa: tampilkan teks doanya. */
+    private fun handlePrayerIntent(i: Intent?) {
+        val id = i?.getStringExtra("prayer_id") ?: return
+        i.removeExtra("prayer_id")
+        val s = Prayer.slots.firstOrNull { it.id == id } ?: return
+        handler.postDelayed({ showPrayerDialog(s) }, 300)
+    }
+
+    /**
+     * Pintasan keyboard (untuk tablet dengan keyboard/mouse). Memakai Alt, bukan tombol Windows,
+     * karena Android sering memakai Win+huruf untuk dirinya sendiri.
+     *   Alt+E File Explorer, Alt+I Pengaturan,
+     *   Alt+S atau Alt+Spasi cari di Start, Ctrl+Esc buka/tutup Start.
+     */
+    override fun dispatchKeyEvent(e: KeyEvent): Boolean {
+        if (e.action == KeyEvent.ACTION_DOWN && e.repeatCount == 0) {
+            val k = e.keyCode
+            if (e.isCtrlPressed && k == KeyEvent.KEYCODE_ESCAPE) {
+                if (panel == P_START) closePanels() else openStart(false)
+                return true
+            }
+            if (e.isAltPressed && !e.isCtrlPressed) {
+                when (k) {
+                    KeyEvent.KEYCODE_E -> { closePanels(); openOwnWindow(FilesActivity::class.java); return true }
+                    KeyEvent.KEYCODE_I -> { openSettingsApp(); return true }
+                    KeyEvent.KEYCODE_S, KeyEvent.KEYCODE_SPACE -> { openStart(true); return true }
+                }
+            }
+        }
+        return super.dispatchKeyEvent(e)
+    }
+
+    override fun onBackPressed() {
+        // Launcher tidak boleh keluar; tombol Back hanya menutup panel.
+        closePanels()
+    }
+
+    // ---------- laporan crash ----------
+    private fun showCrashReport(text: String) {
+        val shown = tv(text.take(1800), 10f, Th.p.dim).apply {
+            typeface = Typeface.MONOSPACE
+            maxLines = 22
+            ellipsize = TextUtils.TruncateAt.END
+            setTextIsSelectable(true)
+        }
+        val box = ll(true)
+        box.addView(tv("Salin laporan ini dan kirim ke pengembang agar masalahnya bisa diperbaiki.", 13f, Th.p.text))
+        box.addView(shown, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(10) })
+        showDialog("Aplikasi sempat berhenti", box, "Salin", "Tutup") {
+            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            cm.setPrimaryClip(ClipData.newPlainText("crash", text))
+            Toast.makeText(this, "Laporan disalin", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // ---------- taskbar auto-hide & layar penuh ----------
+    private fun autoHide(): Boolean = pb("tb_autohide", false)
+
+    private fun setTaskbarShown(show: Boolean, animate: Boolean = true) {
+        tbShown = show
+        val target = if (!autoHide() || show) 0f else (tbHeight() + insB + dp(2)).toFloat()
+        taskbar.animate().cancel()
+        if (animate && Th.animations) {
+            taskbar.animate().translationY(target).setDuration(160).start()
+        } else {
+            taskbar.translationY = target
+        }
+        edgeHandle.visibility = if (autoHide() && !show) View.VISIBLE else View.GONE
+    }
+
+    private fun showTaskbar() {
+        handler.removeCallbacks(hideTaskbarRunnable)
+        if (autoHide() && !tbShown) setTaskbarShown(true)
+        scheduleHide()
+    }
+
+    private fun scheduleHide(delay: Long = 2200L) {
+        handler.removeCallbacks(hideTaskbarRunnable)
+        if (autoHide() && panel == P_NONE) handler.postDelayed(hideTaskbarRunnable, delay)
+    }
+
+    private fun onPanelChanged(id: Int) {
+        if (!::edgeHandle.isInitialized) return
+        if (id != P_NONE) {
+            handler.removeCallbacks(hideTaskbarRunnable)
+            if (autoHide() && !tbShown) setTaskbarShown(true)
+        } else {
+            scheduleHide()
+        }
+    }
+
+    /** Kursor/mouse didekatkan ke tepi bawah layar: munculkan taskbar; dijauhkan: sembunyikan lagi. */
+    override fun dispatchGenericMotionEvent(ev: MotionEvent?): Boolean {
+        if (ev != null && ::edgeHandle.isInitialized && autoHide() &&
+            ev.actionMasked == MotionEvent.ACTION_HOVER_MOVE
+        ) {
+            val h = resources.displayMetrics.heightPixels
+            val barTop = h - (tbHeight() + insB)
+            if (ev.rawY >= h - dp(8)) {
+                showTaskbar()
+            } else if (tbShown && ev.rawY >= barTop) {
+                handler.removeCallbacks(hideTaskbarRunnable)
+            } else if (tbShown && panel == P_NONE && ev.rawY < barTop - dp(12)) {
+                scheduleHide(500L)
+            }
+        }
+        return super.dispatchGenericMotionEvent(ev)
+    }
+
+    override fun dispatchTouchEvent(ev: MotionEvent?): Boolean {
+        if (ev != null && ::edgeHandle.isInitialized && autoHide() && tbShown) {
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_DOWN -> handler.removeCallbacks(hideTaskbarRunnable)
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> scheduleHide()
+            }
+        }
+        return super.dispatchTouchEvent(ev)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun applyImmersive() {
+        val full = pb("fullscreen", false)
+        if (Build.VERSION.SDK_INT >= 30) {
+            val c = window.insetsController ?: return
+            if (full) {
+                c.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                c.hide(WindowInsets.Type.navigationBars())
+            } else {
+                c.show(WindowInsets.Type.navigationBars())
+            }
+        } else {
+            val bits = View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+            var f = window.decorView.systemUiVisibility
+            f = if (full) f or bits else f and bits.inv()
+            window.decorView.systemUiVisibility = f
+        }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            applyImmersive()
+            ensureDesktopFilled()
+        }
+    }
+
+    // ---------- window ----------
+    @Suppress("DEPRECATION")
+    private fun setupWindow() {
+        if (Build.VERSION.SDK_INT >= 30) {
+            window.setDecorFitsSystemWindows(false)
+        } else {
+            window.decorView.systemUiVisibility =
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+                    View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                    View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+        }
+        window.statusBarColor = Color.TRANSPARENT
+        window.navigationBarColor = Color.TRANSPARENT
+        if (Build.VERSION.SDK_INT >= 28) {
+            val attrs = window.attributes
+            attrs.layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            window.attributes = attrs
+        }
+        if (Build.VERSION.SDK_INT >= 29) {
+            window.isNavigationBarContrastEnforced = false
+        }
+    }
+
+    // ---------- UI construction ----------
+    @Suppress("DEPRECATION")
+    private fun buildUi() {
+        root = FrameLayout(this)
+
+        wallpaperView = WallpaperView(this)
+        root.addView(wallpaperView, FrameLayout.LayoutParams(MATCH, MATCH))
+
+        desktop = FrameLayout(this)
+        root.addView(desktop, FrameLayout.LayoutParams(MATCH, MATCH))
+        setupDesktopInteractions()
+
+        if (!tablet) {
+            // HP: bayangan tipis di atas layar agar jam dan ikon status terbaca di wallpaper terang
+            val topShade = View(this).apply {
+                background = android.graphics.drawable.GradientDrawable(
+                    android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
+                    intArrayOf(0x66000000, 0x00000000)
+                )
+            }
+            root.addView(topShade, FrameLayout.LayoutParams(MATCH, dp(64)))
+        }
+
+        scrim = View(this).apply {
+            visibility = View.GONE
+            setOnClickListener { closePanels() }
+        }
+        root.addView(scrim, FrameLayout.LayoutParams(MATCH, MATCH))
+
+        buildStartPanel()
+        buildCalendarPanel()
+        buildQsPanel()
+        buildTaskbar()
+
+        anchor = View(this)
+        root.addView(anchor, FrameLayout.LayoutParams(1, 1))
+
+        setContentView(root)
+        applyBarIcons()
+
+        root.setOnApplyWindowInsetsListener { _, ins ->
+            if (Build.VERSION.SDK_INT >= 30) {
+                val i = ins.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
+                insL = i.left
+                insT = i.top
+                insR = i.right
+                insB = i.bottom
+            } else {
+                insL = ins.systemWindowInsetLeft
+                insT = ins.systemWindowInsetTop
+                insR = ins.systemWindowInsetRight
+                insB = ins.systemWindowInsetBottom
+            }
+            applyLayout()
+            ins
+        }
+
+        root.viewTreeObserver.addOnGlobalLayoutListener {
+            val r = Rect()
+            root.getWindowVisibleDisplayFrame(r)
+            val kb = root.rootView.height - r.bottom
+            val newIme = if (kb > insB + dp(120)) kb else 0
+            if (newIme != imeH) {
+                imeH = newIme
+                applyLayout()
+            }
+        }
+
+        root.addOnLayoutChangeListener { _, l, t, r, b, oldL, oldT, oldR, oldB ->
+            if (r - l != oldR - oldL || b - t != oldB - oldT) {
+                applyLayout()
+                renderTaskbar()
+            }
+        }
+
+        applyLayout()
+    }
+
+    private fun setupDesktopInteractions() {
+        val gd = android.view.GestureDetector(this, object : android.view.GestureDetector.SimpleOnGestureListener() {
+            override fun onDoubleTap(e: MotionEvent): Boolean {
+                runGesture(pi("dbl_action", 1))
+                return true
+            }
+
+            override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
+                if (e1 == null || !pb("swipe_up", true)) return false
+                val dy = e1.y - e2.y
+                val dx = abs(e1.x - e2.x)
+                if (dy > dp(140) && dy > dx * 1.5f && vy < -1200f) {
+                    if (panel == P_NONE) openStart(false)
+                    return true
+                }
+                return false
+            }
+        })
+        var twoY = -1f
+        desktop.setOnTouchListener { _, e ->
+            lastX = e.rawX
+            lastY = e.rawY
+            gd.onTouchEvent(e)
+            when (e.actionMasked) {
+                MotionEvent.ACTION_POINTER_DOWN -> if (e.pointerCount == 2) twoY = (e.getY(0) + e.getY(1)) / 2f
+                MotionEvent.ACTION_MOVE -> if (e.pointerCount == 2 && twoY >= 0f && pb("two_down", true)) {
+                    val y = (e.getY(0) + e.getY(1)) / 2f
+                    if (y - twoY > dp(90)) {
+                        twoY = -1f
+                        if (panel == P_NONE) toggleQs()
+                    }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> twoY = -1f
+            }
+            false
+        }
+        desktop.setOnLongClickListener {
+            showDesktopMenu()
+            true
+        }
+        desktop.addOnLayoutChangeListener { _, _, t, _, b, _, oldT, _, oldB ->
+            // Jangan ubah isi desktop di tengah proses layout: tunda sampai selesai.
+            if (b - t != oldB - oldT) scheduleDesktopRender()
+        }
+    }
+
+    /** Aksi gestur (aksi diatur di Personalisasi > Gestur): 1 kunci layar, 2 Start, 3 cari. */
+    private fun runGesture(action: Int) {
+        if (::scrim.isInitialized && scrim.visibility != View.GONE) return
+        when (action) {
+            1 -> if (!LockService.lock()) {
+                Toast.makeText(this, "Aktifkan dulu: Pengaturan > Personalisasi > Gestur > Izin kunci layar", Toast.LENGTH_LONG).show()
+            }
+            2 -> openStart(false)
+            3 -> openStart(true)
+        }
+    }
+
+    /** Warna panel: di HP dibuat hampir pekat supaya ikon/widget di belakangnya tidak menembus teks. */
+    private fun phoneFill(): Int {
+        val base = Th.panel()
+        return if (tablet) base
+        else Color.argb(max(Color.alpha(base), 0xFC), Color.red(base), Color.green(base), Color.blue(base))
+    }
+
+    private fun buildStartPanel() {
+        startPanel = ll(true).apply {
+            background = rounded(phoneFill(), dpf(26f), Th.p.stroke, dp(1))
+            clipToOutline = true
+            elevation = dpf(18f)
+            visibility = View.GONE
+        }
+
+        searchInput = EditText(this).apply {
+            hint = "Ketik di sini untuk mencari"
+            setHintTextColor(Th.p.faint)
+            setTextColor(Th.p.text)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, if (tablet) 14f else 15f)
+            background = null
+            inputType = InputType.TYPE_CLASS_TEXT
+            imeOptions = EditorInfo.IME_ACTION_SEARCH
+            setPadding(dp(8), 0, dp(8), 0)
+            addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, st: Int, c: Int, a: Int) {}
+                override fun onTextChanged(s: CharSequence?, st: Int, b: Int, c: Int) {}
+                override fun afterTextChanged(s: Editable?) {
+                    if (suppressWatcher) return
+                    query = s?.toString() ?: ""
+                    renderStart()
+                }
+            })
+            setOnEditorActionListener { _, id, _ ->
+                if (id == EditorInfo.IME_ACTION_SEARCH) {
+                    runFirstResult()
+                    true
+                } else {
+                    false
+                }
+            }
+        }
+
+        val searchBox = ll(false, Gravity.CENTER_VERTICAL).apply {
+            background = rounded(Th.p.input, dpf(26f), Th.p.stroke, dp(1))
+            setPadding(dp(if (tablet) 14 else 18), 0, dp(12), 0)
+            addView(icon(GlyphView.Kind.SEARCH, Th.p.dim), LinearLayout.LayoutParams(dp(if (tablet) 18 else 20), dp(if (tablet) 18 else 20)))
+            addView(searchInput, LinearLayout.LayoutParams(0, MATCH, 1f))
+        }
+        startPanel.addView(
+            searchBox,
+            LinearLayout.LayoutParams(MATCH, dp(if (tablet) 42 else 50)).apply {
+                if (tablet) setMargins(dp(16), dp(16), dp(16), dp(8)) else setMargins(dp(18), dp(20), dp(18), dp(10))
+            }
+        )
+
+        startScroll = ScrollView(this).apply {
+            isVerticalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+        }
+        startContent = ll(true)
+        startScroll.addView(startContent, FrameLayout.LayoutParams(MATCH, WRAP))
+        startPanel.addView(startScroll, LinearLayout.LayoutParams(MATCH, 0, 1f))
+
+        val name = Profile.name(this)
+        val footer = ll(false, Gravity.CENTER_VERTICAL).apply {
+            setBackgroundColor(Th.withAlpha(Th.accent, 0x1C))
+            setPadding(dp(20), 0, dp(12), 0)
+        }
+        val userBtn = ll(false, Gravity.CENTER_VERTICAL).apply {
+            background = ripple(dpf(22f))
+            setPadding(dp(6), dp(6), dp(14), dp(6))
+            setOnClickListener { openSettingsApp() }
+        }
+        val avatar = Profile.avatar(this, 32, 13f)
+        userBtn.addView(avatar, LinearLayout.LayoutParams(dp(32), dp(32)))
+        userBtn.addView(
+            tv(name, 13f).apply {
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+                setPadding(dp(10), 0, 0, 0)
+            },
+            LinearLayout.LayoutParams(WRAP, WRAP)
+        )
+        footer.addView(userBtn, LinearLayout.LayoutParams(0, WRAP, 1f))
+
+        footer.addView(footerIcon(GlyphView.Kind.GEAR) { openSettingsApp() }, LinearLayout.LayoutParams(dp(40), dp(40)))
+        footer.addView(footerIcon(GlyphView.Kind.POWER) { showPowerMenu(it) }, LinearLayout.LayoutParams(dp(40), dp(40)))
+        startPanel.addView(footer, LinearLayout.LayoutParams(MATCH, dp(if (tablet) 60 else 66)))
+
+        root.addView(startPanel, FrameLayout.LayoutParams(dp(320), dp(400)))
+    }
+
+    private fun footerIcon(kind: GlyphView.Kind, onClick: (View) -> Unit): FrameLayout =
+        FrameLayout(this).apply {
+            background = ripple(dpf(20f))
+            addView(icon(kind), FrameLayout.LayoutParams(dp(20), dp(20), Gravity.CENTER))
+            setOnClickListener { onClick(it) }
+        }
+
+    private fun buildCalendarPanel() {
+        calTime = tv("", 40f).apply { typeface = Typeface.create("sans-serif-light", Typeface.NORMAL) }
+        calDate = tv("", 14f, Th.p.dim)
+        val cal = CalendarView(Th.themed(this)).apply { firstDayOfWeek = Calendar.MONDAY }
+
+        val inner = ll(true).apply { setPadding(dp(20), dp(16), dp(20), dp(12)) }
+        inner.addView(calTime)
+        inner.addView(calDate)
+        inner.addView(cal, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(8) })
+
+        calPanel = ScrollView(this).apply {
+            background = rounded(phoneFill(), dpf(26f), Th.p.stroke, dp(1))
+            clipToOutline = true
+            elevation = dpf(18f)
+            visibility = View.GONE
+            isVerticalScrollBarEnabled = false
+            addView(inner, FrameLayout.LayoutParams(MATCH, WRAP))
+        }
+        root.addView(calPanel, FrameLayout.LayoutParams(dp(330), WRAP))
+    }
+
+    private fun buildQsPanel() {
+        qsPanel = ll(true).apply {
+            background = rounded(phoneFill(), dpf(26f), Th.p.stroke, dp(1))
+            setPadding(dp(16), dp(16), dp(16), dp(10))
+            clipToOutline = true
+            elevation = dpf(18f)
+            visibility = View.GONE
+        }
+        qsGrid = ll(true)
+        qsPanel.addView(qsGrid, LinearLayout.LayoutParams(MATCH, WRAP))
+
+        brightSeek = SeekBar(this)
+        volSeek = SeekBar(this)
+        qsPanel.addView(
+            sliderRow(GlyphView.Kind.SUN, brightSeek),
+            LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(14) }
+        )
+        qsPanel.addView(
+            sliderRow(GlyphView.Kind.VOLUME, volSeek),
+            LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(6) }
+        )
+
+        brightSeek.max = 255
+        brightSeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(s: SeekBar?, value: Int, fromUser: Boolean) {
+                if (fromUser) setBrightness(value)
+            }
+            override fun onStartTrackingTouch(s: SeekBar?) {}
+            override fun onStopTrackingTouch(s: SeekBar?) {}
+        })
+        volSeek.max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        volSeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(s: SeekBar?, value: Int, fromUser: Boolean) {
+                if (fromUser) audio.setStreamVolume(AudioManager.STREAM_MUSIC, value, 0)
+            }
+            override fun onStartTrackingTouch(s: SeekBar?) {}
+            override fun onStopTrackingTouch(s: SeekBar?) {}
+        })
+
+        val foot = ll(false, Gravity.CENTER_VERTICAL)
+        qsBatt = tv("", 13f, Th.p.dim)
+        foot.addView(qsBatt, LinearLayout.LayoutParams(0, WRAP, 1f))
+        foot.addView(footerIcon(GlyphView.Kind.GEAR) { openSettingsApp() }, LinearLayout.LayoutParams(dp(40), dp(40)))
+        qsPanel.addView(foot, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(8) })
+
+        root.addView(qsPanel, FrameLayout.LayoutParams(dp(360), WRAP))
+    }
+
+    private fun sliderRow(kind: GlyphView.Kind, bar: SeekBar): View {
+        bar.progressTintList = ColorStateList.valueOf(Th.accent)
+        bar.thumbTintList = ColorStateList.valueOf(Th.accent)
+        bar.progressBackgroundTintList = ColorStateList.valueOf(Th.blend(Th.p.faint, Th.p.bg, 0.4f))
+        val row = ll(false, Gravity.CENTER_VERTICAL)
+        row.addView(icon(kind), LinearLayout.LayoutParams(dp(20), dp(20)))
+        row.addView(bar, LinearLayout.LayoutParams(0, dp(36), 1f).apply { leftMargin = dp(10) })
+        return row
+    }
+
+    private fun glyphButton(g: GlyphView, onClick: () -> Unit): FrameLayout =
+        FrameLayout(this).apply {
+            background = ripple(dpf(6f))
+            addView(g, FrameLayout.LayoutParams(dp(24), dp(24), Gravity.CENTER))
+            setOnClickListener { onClick() }
+        }
+
+    private fun buildTaskbar() {
+        val tbH = tbHeight()
+        taskbar = FrameLayout(this).apply {
+            setBackgroundColor(Th.p.taskbar)
+            isClickable = true
+        }
+        val tbGd = android.view.GestureDetector(this, object : android.view.GestureDetector.SimpleOnGestureListener() {
+            override fun onDoubleTap(e: MotionEvent): Boolean {
+                val a = pi("dbl_taskbar", 0)
+                if (a != 0) runGesture(a)
+                return a != 0
+            }
+        })
+        taskbar.setOnTouchListener { _, e ->
+            tbGd.onTouchEvent(e)
+            false
+        }
+
+        center = ll(false, Gravity.CENTER_VERTICAL)
+        startBtn = glyphButton(icon(GlyphView.Kind.START)) { toggleStart() }
+        startPill = View(this).apply {
+            background = rounded(Th.accent, dpf(2f))
+            visibility = View.INVISIBLE
+        }
+        startBtn.addView(startPill, FrameLayout.LayoutParams(dp(12), dp(3), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply {
+            bottomMargin = dp(1)
+        })
+        searchBtn = glyphButton(icon(GlyphView.Kind.SEARCH)) { openStart(true) }
+
+        netGlyph = icon(GlyphView.Kind.NET)
+        volGlyph = icon(GlyphView.Kind.VOLUME)
+        battGlyph = icon(GlyphView.Kind.BATTERY)
+
+        val trayIcons = ll(false, Gravity.CENTER_VERTICAL).apply {
+            setPadding(dp(8), 0, dp(8), 0)
+            background = ripple(dpf(6f))
+            addView(netGlyph, LinearLayout.LayoutParams(dp(18), dp(18)))
+            if (tablet) addView(volGlyph, LinearLayout.LayoutParams(dp(18), dp(18)).apply { leftMargin = dp(8) })
+            addView(battGlyph, LinearLayout.LayoutParams(dp(22), dp(22)).apply { leftMargin = dp(8) })
+            setOnClickListener { toggleQs() }
+        }
+
+        timeText = tv("", 12f).apply { gravity = Gravity.END }
+        dateText = tv("", 12f).apply { gravity = Gravity.END }
+        val clock = ll(true, Gravity.END or Gravity.CENTER_VERTICAL).apply {
+            setPadding(dp(8), 0, dp(10), 0)
+            background = ripple(dpf(6f))
+            addView(timeText)
+            if (tablet && pb("tb_date", true)) addView(dateText)
+            setOnClickListener { toggleCalendar() }
+        }
+
+        val trayWrap = ll(false, Gravity.END or Gravity.CENTER_VERTICAL)
+        trayWrap.addView(trayIcons, LinearLayout.LayoutParams(WRAP, dp(40)))
+        trayWrap.addView(clock, LinearLayout.LayoutParams(WRAP, dp(40)))
+
+        val bar = ll(false, Gravity.CENTER_VERTICAL)
+        if ((pi("tb_center", if (tablet) 1 else 0) == 1)) {
+            bar.addView(Space(this), LinearLayout.LayoutParams(0, MATCH, 1f))
+            bar.addView(center, LinearLayout.LayoutParams(WRAP, MATCH))
+            bar.addView(trayWrap, LinearLayout.LayoutParams(0, MATCH, 1f))
+        } else {
+            bar.addView(center, LinearLayout.LayoutParams(0, MATCH, 1f))
+            bar.addView(trayWrap, LinearLayout.LayoutParams(WRAP, MATCH))
+        }
+        taskbar.addView(bar, FrameLayout.LayoutParams(MATCH, tbH, Gravity.TOP))
+
+        val divider = View(this).apply { setBackgroundColor(Th.p.stroke) }
+        taskbar.addView(divider, FrameLayout.LayoutParams(MATCH, 1, Gravity.TOP))
+
+        root.addView(taskbar, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM))
+
+        // Gagang kecil di tepi bawah saat taskbar tersembunyi (untuk layar sentuh).
+        edgeHandle = FrameLayout(this).apply {
+            visibility = View.GONE
+            addView(
+                View(this@MainActivity).apply { background = rounded(Th.withAlpha(Th.p.text, 0x99), dpf(2f)) },
+                FrameLayout.LayoutParams(dp(44), dp(4), Gravity.CENTER)
+            )
+            setOnTouchListener { _, e ->
+                if (e.actionMasked == MotionEvent.ACTION_DOWN) showTaskbar()
+                true
+            }
+        }
+        root.addView(edgeHandle, FrameLayout.LayoutParams(dp(160), dp(30), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL))
+        tbShown = !autoHide()
+    }
+
+    // ---------- layout ----------
+    private fun applyLayout() {
+        if (!::taskbar.isInitialized || !::startPanel.isInitialized ||
+            !::calPanel.isInitialized || !::qsPanel.isInitialized
+        ) return
+        val dm = resources.displayMetrics
+        val rw = if (root.width > 0) root.width else dm.widthPixels
+        val rh = if (root.height > 0) root.height else dm.heightPixels
+        val tbH = tbHeight()
+
+        taskbar.setPadding(insL, 0, insR, insB)
+
+        val hide = autoHide()
+        (desktop.layoutParams as FrameLayout.LayoutParams).setMargins(
+            insL + dp(4), insT + dp(8), insR, (if (hide) 0 else tbH) + insB
+        )
+        desktop.requestLayout()
+        if (::edgeHandle.isInitialized) {
+            (edgeHandle.layoutParams as FrameLayout.LayoutParams).bottomMargin = insB
+            edgeHandle.requestLayout()
+            if (hide && !tbShown) taskbar.translationY = (tbH + insB + dp(2)).toFloat()
+            edgeHandle.visibility = if (hide && !tbShown) View.VISIBLE else View.GONE
+        }
+
+        val availW = rw - insL - insR
+        val baseBottom = tbH + insB + dp(12)
+        val bottom = max(baseBottom, if (imeH > 0) imeH + dp(8) else 0)
+
+        val pw = if (tablet) min(dp(640), availW - dp(24)) else availW - dp(16)
+        // HP potret: panel Start dibuat tinggi (hampir penuh) agar daftar aplikasi lega
+        val ph = if (tablet) min(dp(720), rh - insT - bottom - dp(8))
+        else min(dp(780), rh - insT - bottom - dp(12))
+        startPanel.layoutParams = FrameLayout.LayoutParams(pw, ph).apply {
+            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            bottomMargin = bottom
+            leftMargin = insL
+            rightMargin = insR
+        }
+
+        val cw = min(dp(340), availW - dp(16))
+        calPanel.layoutParams = FrameLayout.LayoutParams(cw, WRAP).apply {
+            gravity = Gravity.BOTTOM or Gravity.END
+            bottomMargin = baseBottom
+            rightMargin = insR + dp(8)
+        }
+
+        val qw = min(dp(380), availW - dp(16))
+        qsPanel.layoutParams = FrameLayout.LayoutParams(qw, WRAP).apply {
+            gravity = Gravity.BOTTOM or Gravity.END
+            bottomMargin = baseBottom
+            rightMargin = insR + dp(8)
+        }
+    }
+
+    // ---------- data ----------
+    private fun loadApps() {
+        val i = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val out = ArrayList<AppEntry>()
+        val selfMain = MainActivity::class.java.name
+        for (ri in pm.queryIntentActivities(i, 0)) {
+            val ai = ri.activityInfo ?: continue
+            if (ai.packageName == packageName && ai.name == selfMain) continue
+            val label = ri.loadLabel(pm).toString()
+            out.add(AppEntry(label, ai.packageName, ComponentName(ai.packageName, ai.name)))
+        }
+        allApps = out.sortedBy { it.label.lowercase() }
+        byKey = allApps.associateBy { it.key }
+        val hidden = load("hidden").toSet()
+        apps = allApps.filter { it.key !in hidden || it.pkg == packageName }
+        icons.clear()
+        ensureDefaults()
+    }
+
+    private fun defaultPackages(): List<String> {
+        val intents = listOf(
+            Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com")),
+            Intent(Settings.ACTION_SETTINGS),
+            Intent(MediaStore.ACTION_IMAGE_CAPTURE),
+            Intent(Intent.ACTION_DIAL),
+            Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:")),
+            Intent(Intent.ACTION_VIEW).setDataAndType(Uri.parse("content://media/external/images/media"), "image/*"),
+            Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_MARKET),
+            Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_CALCULATOR),
+            Intent(AlarmClock.ACTION_SHOW_ALARMS)
+        )
+        val result = ArrayList<String>()
+        for (probe in intents) {
+            try {
+                val p = pm.queryIntentActivities(probe, PackageManager.MATCH_DEFAULT_ONLY)
+                    .firstOrNull()?.activityInfo?.packageName
+                if (p != null && p != "android" && p != packageName && p !in result) result.add(p)
+            } catch (e: Exception) {
+                // abaikan intent yang gagal di-resolve
+            }
+        }
+        return result
+    }
+
+    private fun ensureDefaults() {
+        if (!prefs.contains("start")) resetPins()
+        val keys = byKey.keys
+        startPins = load("start").filter { it in keys }.toMutableList()
+        taskbarPins = load("taskbar").filter { it in keys }.toMutableList()
+        desktopPins = load("desktop").filter { it in keys }.toMutableList()
+        recents = load("recents").filter { it in keys }.toMutableList()
+    }
+
+    private fun resetPins() {
+        val own = apps.filter { it.pkg == packageName }
+            .sortedBy { if (it.cn.className.endsWith("FilesActivity")) 0 else 1 }
+        val defApps = defaultPackages()
+            .mapNotNull { p -> apps.firstOrNull { it.pkg == p } }
+            .distinctBy { it.key }
+        val start = ArrayList<String>()
+        for (a in own + defApps) if (a.key !in start) start.add(a.key)
+        for (a in apps) {
+            if (start.size >= 12) break
+            if (a.key !in start) start.add(a.key)
+        }
+        save("start", start)
+        save("taskbar", (own + defApps).take(6).map { it.key })
+        save("desktop", (own.take(1) + defApps.take(2)).map { it.key })
+        prefs.edit().remove("recents").apply()
+    }
+
+    private fun iconOf(app: AppEntry): Bitmap = icons.getOrPut(app.key) {
+        val size = dp(64)
+        val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val d = try {
+            pm.getActivityIcon(app.cn)
+        } catch (e: Exception) {
+            pm.defaultActivityIcon
+        }
+        d.setBounds(0, 0, size, size)
+        val cv = Canvas(bmp)
+        d.draw(cv)
+        val n = if (pb("badges", true) && app.pkg != packageName) Badges.count(app.pkg) else 0
+        if (n > 0) drawBadge(cv, size, n)
+        bmp
+    }
+
+    /** Lingkaran merah dengan jumlah notifikasi di pojok kanan atas ikon. */
+    private fun drawBadge(cv: Canvas, size: Int, n: Int) {
+        val r = size * 0.21f
+        val cx = size - r - size * 0.02f
+        val cy = r + size * 0.02f
+        val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+        val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFE5484D.toInt() }
+        cv.drawCircle(cx, cy, r + size * 0.03f, ring)
+        cv.drawCircle(cx, cy, r, fill)
+        val txt = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            typeface = Typeface.DEFAULT_BOLD
+            textAlign = Paint.Align.CENTER
+            textSize = r * 1.3f
+        }
+        val label = if (n > 9) "9+" else n.toString()
+        cv.drawText(label, cx, cy - (txt.descent() + txt.ascent()) / 2f, txt)
+    }
+
+    private var badgeSnapshot: Map<String, Int> = emptyMap()
+
+    /** Jika akses notifikasi sudah diberikan tetapi layanan belum tersambung, minta sambung ulang. */
+    private fun ensureBadgeListener() {
+        try {
+            val enabled = Settings.Secure.getString(contentResolver, "enabled_notification_listeners") ?: ""
+            if (enabled.contains(packageName) && !Badges.connected) {
+                android.service.notification.NotificationListenerService.requestRebind(
+                    android.content.ComponentName(this, NotifService::class.java)
+                )
+            }
+        } catch (e: Throwable) {
+        }
+    }
+
+    private val badgeRefresh = Runnable {
+        badgeSnapshot = Badges.counts
+        icons.clear()
+        renderTaskbar()
+        renderDesktop()
+        if (panel != P_START) renderStart()
+    }
+
+    private var freeCount = 0
+
+    /** Opsi jendela mengambang (butuh "Aktifkan jendela freeform" di Opsi pengembang). */
+    private fun windowOptions(): android.os.Bundle? = try {
+        val dm = resources.displayMetrics
+        val w = (dm.widthPixels * 0.62f).toInt()
+        val h = (dm.heightPixels * 0.70f).toInt()
+        val n = freeCount++ % 5
+        val l = dp(40) + n * dp(36)
+        val t = dp(40) + n * dp(30)
+        ActivityOptions.makeBasic().setLaunchBounds(Rect(l, t, l + w, t + h)).toBundle()
+    } catch (e: Throwable) {
+        null
+    }
+
+    private fun launch(app: AppEntry, windowed: Boolean = false) {
+        val asWindow = windowed || pb("freeform", false)
+        try {
+            if (app.pkg == packageName) {
+                // Pengaturan Win / File Explorer: buka langsung di task launcher.
+                val oi = Intent().setClassName(this, app.cn.className)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+                if (asWindow) startActivity(oi, windowOptions()) else startActivity(oi)
+            } else {
+                val i = Intent(Intent.ACTION_MAIN)
+                    .addCategory(Intent.CATEGORY_LAUNCHER)
+                    .setComponent(app.cn)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+                if (asWindow) {
+                    i.addFlags(Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
+                    startActivity(i, windowOptions())
+                } else {
+                    startActivity(i)
+                }
+            }
+        } catch (e: Throwable) {
+            val why = (e.javaClass.simpleName + " " + (e.message ?: "")).take(140)
+            Toast.makeText(this, "Tidak dapat membuka ${app.label}: $why", Toast.LENGTH_LONG).show()
+        }
+        recents.remove(app.key)
+        recents.add(0, app.key)
+        while (recents.size > 6) recents.removeAt(recents.size - 1)
+        save("recents", recents)
+        closePanels()
+        renderTaskbar()
+    }
+
+    private fun togglePin(list: MutableList<String>, key: String, prefKey: String) {
+        if (!list.remove(key)) list.add(key)
+        save(prefKey, list)
+        renderTaskbar()
+        renderDesktop()
+        renderStart()
+    }
+
+    private fun refreshAll() {
+        applyWallpaper()
+        renderTaskbar()
+        renderDesktop()
+        renderStart()
+    }
+
+    private fun applyWallpaper() {
+        wallpaperView.visibility = if (useSystemWallpaper) View.GONE else View.VISIBLE
+        if (!useSystemWallpaper) wallpaperView.reloadPhoto()
+    }
+
+    private fun openSettingsApp() {
+        closePanels()
+        openOwnWindow(SettingsActivity::class.java)
+    }
+
+    /** Jendela milik launcher yang sudah ditutup dihapus dari daftar terbuka. */
+    private fun purgeClosedWindows() {
+        val before = recents.size
+        recents.removeAll { it.startsWith("$packageName/") && !Running.isOpen(it) }
+        if (recents.size != before) {
+            save("recents", recents)
+            renderTaskbar()
+        }
+    }
+
+    private fun isOpenWindow(app: AppEntry): Boolean =
+        if (app.pkg == packageName) Running.isOpen(app.key) else recents.contains(app.key)
+
+    // ---------- taskbar ----------
+    private fun renderTaskbar() {
+        if (!::center.isInitialized) return
+        center.removeAllViews()
+        val btnLp = { LinearLayout.LayoutParams(dp(44), dp(40)) }
+        center.addView(startBtn, btnLp())
+        val showSearch = pb("tb_search", true)
+        if (showSearch) center.addView(searchBtn, btnLp())
+
+        val dm = resources.displayMetrics
+        val rw = if (root.width > 0) root.width else dm.widthPixels
+        val availDp = (rw - insL - insR) / dm.density
+        val trayDp = if (tablet) 170f else 110f
+        val centered = (pi("tb_center", if (tablet) 1 else 0) == 1)
+        val room = if (centered) availDp - 2 * trayDp else availDp - trayDp
+        val fixed = if (showSearch) 2 else 1
+        val maxIcons = max(0, ((room - fixed * 44f) / 44f).toInt())
+
+        val pinned = taskbarPins.mapNotNull { byKey[it] }
+        val openExtra = recents.mapNotNull { byKey[it] }
+            .filter { it.key !in taskbarPins && isOpenWindow(it) }
+            .take(5)
+        loadFolders()
+        val tbf = tbFolderIds().mapNotNull { folderById(it) }.take(maxIcons)
+        for (app in (pinned + openExtra).take(max(0, maxIcons - tbf.size))) {
+            center.addView(taskIcon(app), btnLp())
+        }
+        for (f in tbf) center.addView(taskFolderIcon(f), btnLp())
+    }
+
+    private fun taskIcon(app: AppEntry): View =
+        FrameLayout(this).apply {
+            background = ripple(dpf(6f))
+            val s = dp(tbIconDp())
+            addView(
+                ImageView(this@MainActivity).apply { setImageBitmap(iconOf(app)) },
+                FrameLayout.LayoutParams(s, s, Gravity.CENTER)
+            )
+            if (isOpenWindow(app)) {
+                addView(
+                    View(this@MainActivity).apply { background = rounded(Th.accent, dpf(2f)) },
+                    FrameLayout.LayoutParams(dp(14), dp(3), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply {
+                        bottomMargin = dp(1)
+                    }
+                )
+            }
+            setOnClickListener { launch(app) }
+            setOnLongClickListener {
+                showAppMenu(this, app)
+                true
+            }
+        }
+
+    // ---------- desktop ----------
+    internal fun renderDesktopNow() = renderDesktop()
+
+    internal fun openSearchFromWidget() = openStart(true)
+
+    private val desktopRender = Runnable { renderDesktop() }
+
+    private fun scheduleDesktopRender(delayMs: Long = 60) {
+        handler.removeCallbacks(desktopRender)
+        handler.postDelayed(desktopRender, delayMs)
+    }
+
+    /** Setelah kembali dari aplikasi lain: kalau desktop kosong padahal seharusnya berisi, gambar ulang. */
+    private fun ensureDesktopFilled() {
+        if (!::desktop.isInitialized) return
+        if (desktop.height > 0 && desktop.childCount == 0) scheduleDesktopRender(0)
+    }
+
+    private fun renderDesktop() {
+        if (!::desktop.isInitialized) return
+        // Tinggi belum valid (mis. saat transisi): biarkan isi lama, jangan dikosongkan.
+        if (desktop.height <= 0) return
+        desktop.removeAllViews()
+        if (widgetLayer == null) widgetLayer = WidgetLayer(this, desktop, prefs)
+        try {
+            renderDeskIcons()
+        } catch (e: Throwable) {
+            Toast.makeText(this, "Gagal menata ikon desktop", Toast.LENGTH_SHORT).show()
+        }
+        try {
+            widgetLayer?.render()
+        } catch (e: Throwable) {
+            Toast.makeText(this, "Widget gagal ditampilkan", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // Posisi ikon desktop: kolom/baris sel. Tersimpan di "deskpos" (baris "kunci|kolom|baris").
+    private val deskCells = HashMap<String, Pair<Int, Int>>()
+    private var deskCellW = 1
+    private var deskCellH = 1
+    private var deskRows = 1
+
+    // Folder di desktop: tersimpan di "folders" (baris "id|nama|kunci1,kunci2").
+    internal class DeskFolder(val id: String, var name: String, val keys: MutableList<String>)
+
+    private val folders = ArrayList<DeskFolder>()
+
+    private fun loadFolders() {
+        folders.clear()
+        for (line in (prefs.getString("folders", "") ?: "").split("\n")) {
+            val p = line.split("|")
+            if (p.size != 3 || p[0].isBlank()) continue
+            folders.add(DeskFolder(p[0], p[1], p[2].split(",").filter { it.isNotBlank() }.toMutableList()))
+        }
+    }
+
+    private fun saveFolders() {
+        prefs.edit().putString(
+            "folders",
+            folders.joinToString("\n") { "${it.id}|${it.name.replace("|", " ").replace("\n", " ")}|${it.keys.joinToString(",")}" }
+        ).apply()
+        handler.post {
+            renderTaskbar()
+            renderStart()
+        }
+    }
+
+    private fun folderById(id: String): DeskFolder? = folders.firstOrNull { it.id == id }
+
+    private fun loadDeskPos(): Map<String, Pair<Int, Int>> {
+        val out = HashMap<String, Pair<Int, Int>>()
+        for (line in (prefs.getString("deskpos", "") ?: "").split("\n")) {
+            val p = line.split("|")
+            if (p.size != 3) continue
+            val c = p[1].toIntOrNull() ?: continue
+            val r = p[2].toIntOrNull() ?: continue
+            out[p[0]] = Pair(c, r)
+        }
+        return out
+    }
+
+    private fun saveDeskPos() {
+        val pins = desktopPins.toSet() + folders.map { "folder:" + it.id }
+        val text = deskCells.filterKeys { it in pins }.entries.joinToString("\n") { "${it.key}|${it.value.first}|${it.value.second}" }
+        prefs.edit().putString("deskpos", text).apply()
+    }
+
+    private fun deskCellFree(c: Int, r: Int, strict: Boolean): Boolean {
+        if (c < 0 || r < 0 || r >= deskRows) return false
+        if (strict && c >= max(1, desktop.width / deskCellW)) return false
+        val inset = dp(6)
+        val rect = Rect(c * deskCellW + inset, r * deskCellH + inset, (c + 1) * deskCellW - inset, (r + 1) * deskCellH - inset)
+        return (widgetLayer?.rects() ?: emptyList()).none { Rect.intersects(it, rect) }
+    }
+
+    private fun renderDeskIcons() {
+        if (!pb("desk_show", true)) return
+        val h = desktop.height
+        if (h <= 0) return
+        val big = deskIconDp()
+        deskCellW = dp(big + 44)
+        deskCellH = dp(big + 52)
+        deskRows = max(1, h / deskCellH)
+        loadFolders()
+        val inFolder = HashSet<String>()
+        var changed = false
+        for (f in folders) {
+            val before = f.keys.size
+            f.keys.retainAll { it in desktopPins && it in byKey }
+            if (f.keys.size != before) changed = true
+            inFolder.addAll(f.keys)
+        }
+        if (folders.removeAll { it.keys.isEmpty() }) changed = true
+        if (changed) saveFolders()
+        val items = ArrayList<String>()
+        for (k in desktopPins) if (k in byKey && k !in inFolder) items.add(k)
+        for (f in folders) items.add("folder:" + f.id)
+        val saved = loadDeskPos()
+        val used = HashSet<Pair<Int, Int>>()
+        deskCells.clear()
+        // 1) ikon yang sudah punya posisi pilihan pengguna
+        for (k in items) {
+            val p = saved[k] ?: continue
+            if (p !in used && deskCellFree(p.first, p.second, true)) {
+                deskCells[k] = p
+                used.add(p)
+            }
+        }
+        // 2) sisanya mengalir mengitari widget dan ikon lain, jadi tidak pernah tertutup
+        var col = 0
+        var row = 0
+        for (k in items) {
+            if (k in deskCells) continue
+            var guard = 0
+            while (guard++ < 600) {
+                if (Pair(col, row) !in used && deskCellFree(col, row, false)) break
+                row++
+                if (row >= deskRows) { row = 0; col++ }
+            }
+            val p = Pair(col, row)
+            deskCells[k] = p
+            used.add(p)
+        }
+        for (k in items) {
+            val p = deskCells[k] ?: continue
+            val lp = FrameLayout.LayoutParams(deskCellW, deskCellH)
+            lp.leftMargin = p.first * deskCellW
+            lp.topMargin = p.second * deskCellH
+            val view = if (k.startsWith("folder:")) {
+                val f = folderById(k.removePrefix("folder:")) ?: continue
+                folderTile(f, big)
+            } else {
+                desktopIcon(byKey[k] ?: continue, big)
+            }
+            desktop.addView(view, lp)
+        }
+    }
+
+    /**
+     * Ikon/folder dilepas setelah diseret. Dilepas di tengah ikon lain: jadi folder (atau masuk folder).
+     * Dilepas di tepi sel: pindah/tukar tempat. Kembali bila tidak muat.
+     */
+    private fun dropDeskItem(v: View, key: String, app: AppEntry?) {
+        val lp = v.layoutParams as FrameLayout.LayoutParams
+        val cx = lp.leftMargin + v.width / 2f + v.translationX
+        val cy = lp.topMargin + v.height / 2f + v.translationY
+        val c = Math.floor((cx / deskCellW).toDouble()).toInt()
+        val r = Math.floor((cy / deskCellH).toDouble()).toInt()
+        val old = deskCells[key]
+        val otherKey = deskCells.entries.firstOrNull { it.key != key && it.value == Pair(c, r) }?.key
+        if (app != null && otherKey != null) {
+            val fx = cx - c * deskCellW
+            val fy = cy - r * deskCellH
+            val center = fx > deskCellW * 0.25f && fx < deskCellW * 0.75f && fy > deskCellH * 0.25f && fy < deskCellH * 0.75f
+            if (center) {
+                if (otherKey.startsWith("folder:")) {
+                    addToFolder(otherKey.removePrefix("folder:"), app.key)
+                    return
+                }
+                val other = byKey[otherKey]
+                if (other != null) {
+                    createFolder(app, other, Pair(c, r))
+                    return
+                }
+            }
+        }
+        if (old != null && deskCellFree(c, r, true) && Pair(c, r) != old) {
+            if (otherKey != null) deskCells[otherKey] = old
+            deskCells[key] = Pair(c, r)
+            saveDeskPos()
+        }
+        desktop.post { renderDesktop() }
+    }
+
+    private fun createFolder(a: AppEntry, b: AppEntry, cell: Pair<Int, Int>) {
+        loadFolders()
+        for (f in folders) f.keys.removeAll { it == a.key || it == b.key }
+        val id = System.currentTimeMillis().toString(36)
+        folders.add(DeskFolder(id, "Folder", mutableListOf(b.key, a.key)))
+        saveFolders()
+        deskCells["folder:$id"] = cell
+        saveDeskPos()
+        renderDesktop()
+        promptDialog("Nama folder", "Folder", "Nama folder", "Simpan") { n ->
+            if (n.isNotBlank()) {
+                loadFolders()
+                folderById(id)?.let { it.name = n.take(24) }
+                saveFolders()
+                renderDesktop()
+            }
+        }
+    }
+
+    private fun addToFolder(id: String, appKey: String) {
+        loadFolders()
+        for (f in folders) f.keys.remove(appKey)
+        folderById(id)?.keys?.add(appKey)
+        saveFolders()
+        desktop.post { renderDesktop() }
+    }
+
+    private fun folderBitmap(f: DeskFolder): Bitmap {
+        val size = dp(64)
+        val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val cv = Canvas(bmp)
+        val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+        val box = android.graphics.RectF(dp(1).toFloat(), dp(1).toFloat(), (size - dp(1)).toFloat(), (size - dp(1)).toFloat())
+        p.color = Th.withAlpha(Th.blend(Th.accent, 0xFFFFFFFF.toInt(), 0.30f), 0x99)
+        cv.drawRoundRect(box, size * 0.26f, size * 0.26f, p)
+        p.style = android.graphics.Paint.Style.STROKE
+        p.strokeWidth = dp(1).toFloat()
+        p.color = 0x88FFFFFF.toInt()
+        cv.drawRoundRect(box, size * 0.26f, size * 0.26f, p)
+        val ip = android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG)
+        val pad = size * 0.12f
+        val cell = (size - 2 * pad) / 2f
+        val ic = cell * 0.86f
+        for ((i, a) in f.keys.mapNotNull { byKey[it] }.take(4).withIndex()) {
+            val l = pad + (i % 2) * cell + (cell - ic) / 2f
+            val tp = pad + (i / 2) * cell + (cell - ic) / 2f
+            cv.drawBitmap(iconOf(a), null, android.graphics.RectF(l, tp, l + ic, tp + ic), ip)
+        }
+        return bmp
+    }
+
+    private fun folderTile(f: DeskFolder, sizeDp: Int): View {
+        val id = f.id
+        return desktopTile("folder:$id", f.name, folderBitmap(f), null, { folderById(id)?.let { openFolder(it) } }, { v -> folderMenu(v, id) }, sizeDp)
+    }
+
+    /** Folder di menu Start (bagian "Folder"). */
+    private fun folderStartTile(f: DeskFolder): View {
+        val id = f.id
+        val v = ll(true, Gravity.CENTER_HORIZONTAL).apply {
+            if (tablet) setPadding(dp(4), dp(10), dp(4), dp(8)) else setPadding(dp(2), dp(12), dp(2), dp(10))
+            background = ripple(dpf(16f))
+        }
+        val iconPx = dp(if (tablet) 38 else 46)
+        v.addView(ImageView(this).apply { setImageBitmap(folderBitmap(f)) }, LinearLayout.LayoutParams(iconPx, iconPx))
+        v.addView(
+            tv(f.name, if (tablet) 12f else 11.5f).apply {
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+                gravity = Gravity.CENTER
+                setPadding(0, dp(if (tablet) 6 else 8), 0, 0)
+            },
+            LinearLayout.LayoutParams(MATCH, WRAP)
+        )
+        v.setOnClickListener {
+            closePanels()
+            folderById(id)?.let { openFolder(it) }
+        }
+        v.setOnLongClickListener {
+            folderMenu(v, id)
+            true
+        }
+        return v
+    }
+
+    private fun taskFolderIcon(f: DeskFolder): View {
+        val id = f.id
+        return FrameLayout(this).apply {
+            background = ripple(dpf(6f))
+            val s = dp(tbIconDp())
+            addView(ImageView(this@MainActivity).apply { setImageBitmap(folderBitmap(f)) }, FrameLayout.LayoutParams(s, s, Gravity.CENTER))
+            setOnClickListener { folderById(id)?.let { openFolder(it) } }
+            setOnLongClickListener {
+                folderMenu(this, id)
+                true
+            }
+        }
+    }
+
+    private fun tbFolderIds(): MutableList<String> =
+        (prefs.getString("tb_folders", "") ?: "").split(",").filter { it.isNotBlank() }.toMutableList()
+
+    private fun folderMenu(anchorView: View, id: String) {
+        val pop = PopupMenu(Th.themed(this), anchorView)
+        pop.menu.add(0, 1, 0, "Buka folder")
+        pop.menu.add(0, 2, 0, "Ganti nama")
+        pop.menu.add(0, 4, 0, if (id in tbFolderIds()) "Lepas dari taskbar" else "Sematkan ke taskbar")
+        pop.menu.add(0, 3, 0, "Bubarkan folder")
+        pop.setOnMenuItemClickListener { item ->
+            val f = folderById(id)
+            if (f != null) when (item.itemId) {
+                1 -> openFolder(f)
+                2 -> renameFolder(id)
+                4 -> {
+                    val l = tbFolderIds()
+                    if (id in l) l.remove(id) else l.add(id)
+                    prefs.edit().putString("tb_folders", l.joinToString(",")).apply()
+                    renderTaskbar()
+                }
+                3 -> {
+                    folders.removeAll { it.id == id }
+                    saveFolders()
+                    renderDesktop()
+                }
+            }
+            true
+        }
+        pop.show()
+    }
+
+    private fun renameFolder(id: String) {
+        val cur = folderById(id)?.name ?: return
+        promptDialog("Ganti nama folder", cur, "Nama folder", "Simpan") { n ->
+            if (n.isNotBlank()) {
+                loadFolders()
+                folderById(id)?.let { it.name = n.take(24) }
+                saveFolders()
+                renderDesktop()
+            }
+        }
+    }
+
+    private fun openFolder(f: DeskFolder) {
+        val id = f.id
+        val apps = f.keys.mapNotNull { byKey[it] }
+        var dlg: android.app.Dialog? = null
+        val cols = 4
+        val box = ll(true)
+        var row: LinearLayout? = null
+        for ((i, a) in apps.withIndex()) {
+            if (i % cols == 0) {
+                row = ll(false)
+                box.addView(row, LinearLayout.LayoutParams(MATCH, WRAP))
+            }
+            val cell = ll(true, Gravity.CENTER_HORIZONTAL).apply {
+                setPadding(dp(4), dp(8), dp(4), dp(8))
+                background = ripple(dpf(10f))
+            }
+            cell.addView(ImageView(this).apply { setImageBitmap(iconOf(a)) }, LinearLayout.LayoutParams(dp(44), dp(44)))
+            cell.addView(
+                tv(a.label, 11f, Th.p.text).apply {
+                    maxLines = 2
+                    ellipsize = TextUtils.TruncateAt.END
+                    gravity = Gravity.CENTER
+                },
+                LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(4) }
+            )
+            cell.setOnClickListener {
+                dlg?.dismiss()
+                launch(a)
+            }
+            cell.setOnLongClickListener {
+                val pop = PopupMenu(Th.themed(this), cell)
+                pop.menu.add(0, 1, 0, "Keluarkan dari folder")
+                pop.menu.add(0, 2, 0, "Buka dalam jendela")
+                pop.setOnMenuItemClickListener { item ->
+                    when (item.itemId) {
+                        1 -> {
+                            loadFolders()
+                            folderById(id)?.keys?.remove(a.key)
+                            saveFolders()
+                            dlg?.dismiss()
+                            renderDesktop()
+                        }
+                        2 -> {
+                            dlg?.dismiss()
+                            launch(a, true)
+                        }
+                    }
+                    true
+                }
+                pop.show()
+                true
+            }
+            row!!.addView(cell, LinearLayout.LayoutParams(0, WRAP, 1f))
+        }
+        val rest = (cols - apps.size % cols) % cols
+        for (i in 0 until rest) row?.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
+        val sv = android.widget.ScrollView(this)
+        sv.addView(box)
+        val rows = (apps.size + cols - 1) / cols
+        val h = minOf(dp(84 * max(1, rows)), (resources.displayMetrics.heightPixels * 0.55f).toInt())
+        val holder = FrameLayout(this)
+        holder.addView(sv, FrameLayout.LayoutParams(MATCH, h))
+        dlg = showDialog(f.name, holder, "Ganti nama", "Tutup") { renameFolder(id) }
+    }
+
+    private fun desktopIcon(app: AppEntry, sizeDp: Int): View =
+        desktopTile(app.key, app.label, iconOf(app), app, { launch(app) }, { v -> showAppMenu(v, app) }, sizeDp)
+
+    private fun desktopTile(
+        key: String,
+        label: String,
+        bmp: Bitmap,
+        app: AppEntry?,
+        onTap: () -> Unit,
+        onMenu: (View) -> Unit,
+        sizeDp: Int
+    ): View {
+        val v = ll(true, Gravity.CENTER_HORIZONTAL).apply {
+            setPadding(dp(4), dp(8), dp(4), dp(4))
+            background = ripple(dpf(6f))
+        }
+        v.addView(
+            ImageView(this).apply { setImageBitmap(bmp) },
+            LinearLayout.LayoutParams(dp(sizeDp), dp(sizeDp))
+        )
+        // Latar belakang wallpaper bisa terang atau gelap, jadi label memakai bayangan.
+        val t = tv(label, 12f, 0xFFFFFFFF.toInt()).apply {
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.END
+            gravity = Gravity.CENTER
+            setShadowLayer(3f, 0f, 1f, 0x66000000)
+            // Label diberi latar azure transparan (bukan hitam) agar terbaca di wallpaper terang maupun gelap.
+            val az = Th.blend(Th.ACCENTS[Th.accentIdx].light, 0xFF06214D.toInt(), 0.25f)
+            background = rounded(Th.withAlpha(az, 0xB8), dpf(12f), 0x55FFFFFF, dp(1))
+            setPadding(dp(8), dp(2), dp(8), dp(2))
+            maxWidth = dp(sizeDp + 38)
+        }
+        v.addView(t, LinearLayout.LayoutParams(WRAP, WRAP).apply { topMargin = dp(4) })
+        v.setOnClickListener { onTap() }
+        // Ketuk = buka. Tahan lalu geser = pindahkan. Tahan tanpa geser = menu.
+        val slop = ViewConfiguration.get(this).scaledTouchSlop
+        var downX = 0f
+        var downY = 0f
+        var longFired = false
+        var dragging = false
+        val longPress = Runnable {
+            longFired = true
+            v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            v.alpha = 0.85f
+            v.elevation = dpf(12f)
+            v.bringToFront()
+        }
+        fun reset() {
+            v.alpha = 1f
+            v.elevation = 0f
+            v.translationX = 0f
+            v.translationY = 0f
+        }
+        v.setOnTouchListener { _, e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = e.rawX
+                    downY = e.rawY
+                    longFired = false
+                    dragging = false
+                    handler.postDelayed(longPress, 380)
+                    v.parent?.requestDisallowInterceptTouchEvent(true)
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = e.rawX - downX
+                    val dy = e.rawY - downY
+                    if (!longFired) {
+                        if (abs(dx) > slop || abs(dy) > slop) handler.removeCallbacks(longPress)
+                    } else {
+                        if (abs(dx) > slop || abs(dy) > slop) dragging = true
+                        if (dragging) {
+                            v.translationX = dx
+                            v.translationY = dy
+                        }
+                    }
+                }
+                MotionEvent.ACTION_UP -> {
+                    handler.removeCallbacks(longPress)
+                    when {
+                        dragging -> dropDeskItem(v, key, app)
+                        longFired -> {
+                            reset()
+                            onMenu(v)
+                        }
+                        abs(e.rawX - downX) <= slop && abs(e.rawY - downY) <= slop -> v.performClick()
+                    }
+                    dragging = false
+                    longFired = false
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    handler.removeCallbacks(longPress)
+                    reset()
+                    dragging = false
+                    longFired = false
+                }
+            }
+            true
+        }
+        return v
+    }
+
+    // ---------- start menu ----------
+    private fun renderStart() {
+        if (!::startContent.isInitialized) return
+        startContent.removeAllViews()
+        val q = query.trim()
+        when {
+            q.isNotEmpty() -> renderSearch(q)
+            mode == Mode.ALL -> renderAll()
+            else -> renderPinned()
+        }
+        startScroll.scrollTo(0, 0)
+    }
+
+    private fun headerRow(title: String, action: String?, onAction: (() -> Unit)?): View {
+        val row = ll(false, Gravity.CENTER_VERTICAL).apply {
+            if (tablet) setPadding(dp(24), dp(10), dp(16), dp(4)) else setPadding(dp(24), dp(14), dp(16), dp(6))
+        }
+        row.addView(tv(title, if (tablet) 14f else 15f, Th.p.text, true), LinearLayout.LayoutParams(0, WRAP, 1f))
+        if (action != null) {
+            val b = tv(action, 12f).apply {
+                background = ripple(dpf(6f), Th.p.cardHover)
+                setPadding(dp(10), dp(6), dp(10), dp(6))
+                setOnClickListener { onAction?.invoke() }
+            }
+            row.addView(b)
+        }
+        return row
+    }
+
+    private fun renderPinned() {
+        startContent.addView(headerRow("Disematkan", "Semua aplikasi  ›") {
+            mode = Mode.ALL
+            renderStart()
+        })
+        val cols = pi("start_cols", 0).let { if (it == 0) (if (tablet) 6 else 4) else it }
+        val pinned = startPins.mapNotNull { byKey[it] }
+        if (pinned.isEmpty()) {
+            startContent.addView(tv("Belum ada aplikasi yang disematkan.", 12f, Th.p.dim).apply {
+                setPadding(dp(24), dp(8), dp(24), dp(16))
+            })
+        } else {
+            startContent.addView(gridOf(pinned, cols) { tile(it) })
+        }
+
+        loadFolders()
+        if (folders.isNotEmpty()) {
+            startContent.addView(headerRow("Folder", null, null))
+            val wrap = ll(true).apply { setPadding(dp(16), 0, dp(16), dp(8)) }
+            val cols2 = cols
+            for (rowItems in folders.toList().chunked(cols2)) {
+                val row = ll(false)
+                for (i in 0 until cols2) {
+                    val lp = LinearLayout.LayoutParams(0, WRAP, 1f)
+                    row.addView(if (i < rowItems.size) folderStartTile(rowItems[i]) else Space(this), lp)
+                }
+                wrap.addView(row)
+            }
+            startContent.addView(wrap)
+        }
+
+        if (pb("start_recents", true)) {
+            startContent.addView(headerRow("Direkomendasikan", null, null))
+            val rec = recents.mapNotNull { byKey[it] }
+            if (rec.isEmpty()) {
+                startContent.addView(tv("Aplikasi yang baru dibuka akan muncul di sini.", 12f, Th.p.dim).apply {
+                    setPadding(dp(24), dp(8), dp(24), dp(16))
+                })
+            } else {
+                startContent.addView(gridOf(rec, 2) { recentCell(it) })
+            }
+        }
+    }
+
+    private fun renderAll() {
+        startContent.addView(headerRow("Semua aplikasi", "‹  Kembali") {
+            mode = Mode.PINNED
+            renderStart()
+        })
+        var last = ""
+        for (a in apps) {
+            val l = letterOf(a)
+            if (l != last) {
+                last = l
+                startContent.addView(tv(l, 13f, Th.accent, true).apply { setPadding(dp(24), dp(12), 0, dp(4)) })
+            }
+            startContent.addView(listRow(a))
+        }
+        startContent.addView(Space(this), LinearLayout.LayoutParams(MATCH, dp(12)))
+    }
+
+    private fun searchResults(q: String): List<AppEntry> {
+        val ql = q.lowercase()
+        return apps
+            .filter { it.label.lowercase().contains(ql) }
+            .sortedWith(compareBy({ !it.label.lowercase().startsWith(ql) }, { it.label.lowercase() }))
+    }
+
+    private fun searchRow(kind: GlyphView.Kind, title: String, sub: String?, onClick: () -> Unit): View {
+        val v = ll(false, Gravity.CENTER_VERTICAL).apply {
+            setPadding(dp(16), dp(6), dp(16), dp(6))
+            background = ripple(dpf(16f))
+            minimumHeight = dp(if (tablet) 48 else 56)
+            layoutParams = LinearLayout.LayoutParams(MATCH, WRAP).apply { setMargins(dp(8), 0, dp(8), 0) }
+            setOnClickListener { onClick() }
+        }
+        v.addView(icon(kind, Th.accent), LinearLayout.LayoutParams(dp(22), dp(22)))
+        val col = ll(true).apply { setPadding(dp(if (tablet) 14 else 16), 0, 0, 0) }
+        col.addView(tv(title, if (tablet) 14f else 15f).apply {
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        })
+        if (sub != null) col.addView(tv(sub, 11.5f, Th.p.dim).apply {
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        })
+        v.addView(col, LinearLayout.LayoutParams(0, WRAP, 1f))
+        return v
+    }
+
+    private val settingsShortcuts = listOf(
+        Triple("Sistem", "system", GlyphView.Kind.SYSTEM),
+        Triple("Bluetooth & perangkat", "bluetooth", GlyphView.Kind.BLUETOOTH),
+        Triple("Jaringan & internet", "network", GlyphView.Kind.NET),
+        Triple("Personalisasi tema warna wallpaper", "personalize", GlyphView.Kind.PERSONALIZE),
+        Triple("Aplikasi", "apps", GlyphView.Kind.APPS),
+        Triple("Aplikasi tersembunyi", "hiddenApps", GlyphView.Kind.APPS),
+        Triple("Akun cadangan pulihkan", "accounts", GlyphView.Kind.ACCOUNTS),
+        Triple("Waktu & bahasa", "time", GlyphView.Kind.TIME),
+        Triple("Aksesibilitas", "access", GlyphView.Kind.ACCESS),
+        Triple("Privasi & keamanan", "privacy", GlyphView.Kind.PRIVACY),
+        Triple("Pembaruan", "update", GlyphView.Kind.UPDATE),
+        Triple("Waktu doa |pengingat katolik angelus malaikat tuhan kerahiman rosario lonceng", "prayer", GlyphView.Kind.BELL)
+    )
+
+    @Volatile private var searchGen = 0
+
+    private fun searchFiles(q: String, box: LinearLayout) {
+        val gen = ++searchGen
+        if (q.length < 2) return
+        Thread {
+            val found = ArrayList<File>()
+            val ql = q.lowercase()
+            val root = Environment.getExternalStorageDirectory()
+            fun walk(d: File, depth: Int) {
+                if (found.size >= 8 || depth > 4 || gen != searchGen) return
+                val ch = d.listFiles() ?: return
+                for (f in ch) {
+                    if (found.size >= 8 || gen != searchGen) return
+                    if (f.name.startsWith(".")) continue
+                    if (f.name.lowercase().contains(ql)) found.add(f)
+                    if (f.isDirectory) walk(f, depth + 1)
+                }
+            }
+            for (n in listOf("Download", "Documents", "DCIM", "Pictures", "Music", "Movies")) {
+                if (gen != searchGen) return@Thread
+                walk(File(root, n), 0)
+            }
+            runOnUiThread {
+                if (gen != searchGen || box.parent == null) return@runOnUiThread
+                box.removeAllViews()
+                if (found.isEmpty()) {
+                    box.visibility = View.GONE
+                    return@runOnUiThread
+                }
+                box.addView(headerRow("File", null, null))
+                for (f in found) {
+                    val dir = if (f.isDirectory) f else (f.parentFile ?: root)
+                    box.addView(
+                        searchRow(
+                            if (f.isDirectory) GlyphView.Kind.FOLDER else GlyphView.Kind.FILE,
+                            f.name,
+                            f.parent?.removePrefix(root.absolutePath)?.ifEmpty { "/" }
+                        ) {
+                            closePanels()
+                            openOwnWindow(FilesActivity::class.java) { putExtra(FilesActivity.EXTRA_PATH, dir.absolutePath) }
+                        }
+                    )
+                }
+            }
+        }.start()
+    }
+
+    private fun renderSearch(q: String) {
+        // Kalkulator cepat: ketik mis. 12*(3+4)
+        calc(q)?.let { r ->
+            startContent.addView(headerRow("Kalkulator", null, null))
+            startContent.addView(searchRow(GlyphView.Kind.PLUS, "= $r", "Ketuk untuk menyalin hasil") {
+                val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                cm.setPrimaryClip(ClipData.newPlainText("hasil", r))
+                Toast.makeText(this, "Hasil disalin", Toast.LENGTH_SHORT).show()
+            })
+        }
+        val res = searchResults(q)
+        startContent.addView(headerRow("Aplikasi", null, null))
+        if (res.isEmpty()) {
+            startContent.addView(tv("Tidak ada aplikasi yang cocok.", 12f, Th.p.dim).apply {
+                setPadding(dp(24), dp(4), dp(24), dp(8))
+            })
+        } else {
+            for (a in res) startContent.addView(listRow(a))
+        }
+        val ql = q.lowercase()
+        val sets = settingsShortcuts.filter { it.first.lowercase().contains(ql) }
+        if (sets.isNotEmpty()) {
+            startContent.addView(headerRow("Pengaturan", null, null))
+            for ((title, id, kind) in sets) {
+                val shown = title.substringBefore(" |").substringBefore(" tema").substringBefore(" cadangan")
+                startContent.addView(searchRow(kind, shown, "Buka di Pengaturan") {
+                    closePanels()
+                    openOwnWindow(SettingsActivity::class.java) { putExtra(SettingsActivity.EXTRA_PAGE, id) }
+                })
+            }
+        }
+        val fileBox = ll(true)
+        startContent.addView(fileBox, LinearLayout.LayoutParams(MATCH, WRAP))
+        searchFiles(q, fileBox)
+        startContent.addView(headerRow("Web", null, null))
+        val web = ll(false, Gravity.CENTER_VERTICAL).apply {
+            setPadding(dp(16), 0, dp(16), 0)
+            background = ripple(dpf(6f))
+            layoutParams = LinearLayout.LayoutParams(MATCH, dp(44)).apply { setMargins(dp(8), 0, dp(8), 0) }
+            setOnClickListener {
+                try {
+                    startActivity(
+                        Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/search?q=" + Uri.encode(q)))
+                    )
+                } catch (e: Exception) {
+                    Toast.makeText(this@MainActivity, "Tidak ada peramban", Toast.LENGTH_SHORT).show()
+                }
+                closePanels()
+            }
+        }
+        web.addView(icon(GlyphView.Kind.SEARCH), LinearLayout.LayoutParams(dp(20), dp(20)))
+        web.addView(tv("Cari \"$q\" di web", 14f).apply { setPadding(dp(14), 0, 0, 0) })
+        startContent.addView(web)
+        startContent.addView(Space(this), LinearLayout.LayoutParams(MATCH, dp(12)))
+    }
+
+    private fun runFirstResult() {
+        val q = query.trim()
+        if (q.isEmpty()) return
+        searchResults(q).firstOrNull()?.let { launch(it) }
+    }
+
+    private fun letterOf(a: AppEntry): String {
+        val ch = a.label.trim().firstOrNull()?.uppercaseChar()
+        return if (ch != null && ch.isLetter()) ch.toString() else "#"
+    }
+
+    private fun gridOf(items: List<AppEntry>, cols: Int, cell: (AppEntry) -> View): View {
+        val wrap = ll(true).apply { setPadding(dp(16), 0, dp(16), dp(8)) }
+        for (rowItems in items.chunked(cols)) {
+            val row = ll(false)
+            for (i in 0 until cols) {
+                val lp = LinearLayout.LayoutParams(0, WRAP, 1f)
+                row.addView(if (i < rowItems.size) cell(rowItems[i]) else Space(this), lp)
+            }
+            wrap.addView(row)
+        }
+        return wrap
+    }
+
+    private fun tile(app: AppEntry): View {
+        val v = ll(true, Gravity.CENTER_HORIZONTAL).apply {
+            if (tablet) setPadding(dp(4), dp(10), dp(4), dp(8)) else setPadding(dp(2), dp(12), dp(2), dp(10))
+            background = ripple(dpf(16f))
+        }
+        val iconPx = dp(if (tablet) 38 else 46)
+        v.addView(
+            ImageView(this).apply { setImageBitmap(iconOf(app)) },
+            LinearLayout.LayoutParams(iconPx, iconPx)
+        )
+        val t = tv(app.label, if (tablet) 12f else 11.5f).apply {
+            maxLines = if (tablet) 1 else 2
+            ellipsize = TextUtils.TruncateAt.END
+            gravity = Gravity.CENTER
+            setPadding(0, dp(if (tablet) 6 else 8), 0, 0)
+        }
+        v.addView(t, LinearLayout.LayoutParams(MATCH, WRAP))
+        v.setOnClickListener { launch(app) }
+        v.setOnLongClickListener {
+            showAppMenu(v, app)
+            true
+        }
+        return v
+    }
+
+    private fun recentCell(app: AppEntry): View {
+        val v = ll(false, Gravity.CENTER_VERTICAL).apply {
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+            background = ripple(dpf(8f))
+        }
+        v.addView(
+            ImageView(this).apply { setImageBitmap(iconOf(app)) },
+            LinearLayout.LayoutParams(dp(28), dp(28))
+        )
+        v.addView(
+            tv(app.label, 13f).apply {
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+                setPadding(dp(10), 0, 0, 0)
+            },
+            LinearLayout.LayoutParams(0, WRAP, 1f)
+        )
+        v.setOnClickListener { launch(app) }
+        v.setOnLongClickListener {
+            showAppMenu(v, app)
+            true
+        }
+        return v
+    }
+
+    private fun listRow(app: AppEntry): View {
+        val v = ll(false, Gravity.CENTER_VERTICAL).apply {
+            setPadding(dp(16), 0, dp(16), 0)
+            background = ripple(dpf(16f))
+            layoutParams = LinearLayout.LayoutParams(MATCH, dp(if (tablet) 44 else 54)).apply { setMargins(dp(8), 0, dp(8), 0) }
+        }
+        val rowIcon = dp(if (tablet) 26 else 34)
+        v.addView(
+            ImageView(this).apply { setImageBitmap(iconOf(app)) },
+            LinearLayout.LayoutParams(rowIcon, rowIcon)
+        )
+        v.addView(
+            tv(app.label, if (tablet) 14f else 15f).apply {
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+                setPadding(dp(if (tablet) 14 else 16), 0, 0, 0)
+            },
+            LinearLayout.LayoutParams(0, WRAP, 1f)
+        )
+        v.setOnClickListener { launch(app) }
+        v.setOnLongClickListener {
+            showAppMenu(v, app)
+            true
+        }
+        return v
+    }
+
+    // ---------- menus ----------
+    private fun showAppMenu(anchorView: View, app: AppEntry) {
+        val pop = PopupMenu(Th.themed(this), anchorView)
+        val m = pop.menu
+        m.add(0, 1, 0, if (app.key in startPins) "Lepas dari Start" else "Sematkan ke Start")
+        m.add(0, 2, 0, if (app.key in taskbarPins) "Lepas dari taskbar" else "Sematkan ke taskbar")
+        m.add(0, 3, 0, if (app.key in desktopPins) "Hapus dari desktop" else "Tambahkan ke desktop")
+        m.add(0, 9, 0, "Buka dalam jendela")
+        if (app.key in recents && app.pkg != packageName) m.add(0, 6, 0, "Hapus dari daftar terbuka")
+        if (app.pkg != packageName) {
+            m.add(0, 7, 0, if (app.key in load("hidden")) "Tampilkan di daftar aplikasi" else "Sembunyikan dari daftar aplikasi")
+            m.add(0, 4, 0, "Info aplikasi")
+            m.add(0, 5, 0, "Copot pemasangan")
+        }
+        pop.setOnMenuItemClickListener { item ->
+            try {
+                when (item.itemId) {
+                    1 -> togglePin(startPins, app.key, "start")
+                    2 -> togglePin(taskbarPins, app.key, "taskbar")
+                    3 -> togglePin(desktopPins, app.key, "desktop")
+                    9 -> launch(app, true)
+                    7 -> {
+                        val h = load("hidden")
+                        val nowHidden = app.key !in h
+                        if (nowHidden) h.add(app.key) else h.remove(app.key)
+                        save("hidden", h)
+                        loadApps()
+                        refreshAll()
+                        Toast.makeText(
+                            this,
+                            if (nowHidden) "Disembunyikan. Kelola di Pengaturan > Aplikasi > Aplikasi tersembunyi"
+                            else "Ditampilkan lagi",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                    6 -> {
+                        recents.remove(app.key)
+                        save("recents", recents)
+                        renderTaskbar()
+                    }
+                    4 -> startActivity(
+                        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", app.pkg, null))
+                    )
+                    5 -> startActivity(Intent(Intent.ACTION_DELETE, Uri.fromParts("package", app.pkg, null)))
+                }
+            } catch (e: Exception) {
+                Toast.makeText(this, "Aksi tidak tersedia", Toast.LENGTH_SHORT).show()
+            }
+            true
+        }
+        pop.show()
+    }
+
+    private fun showDesktopMenu() {
+        val loc = IntArray(2)
+        root.getLocationOnScreen(loc)
+        val lp = anchor.layoutParams as FrameLayout.LayoutParams
+        lp.gravity = Gravity.TOP or Gravity.START
+        lp.leftMargin = (lastX - loc[0]).toInt()
+        lp.topMargin = (lastY - loc[1]).toInt()
+        anchor.layoutParams = lp
+
+        val pop = PopupMenu(Th.themed(this), anchor)
+        val m = pop.menu
+        m.add(0, 1, 0, if (useSystemWallpaper) "Gunakan wallpaper bawaan" else "Gunakan wallpaper sistem")
+        m.add(0, 2, 0, "Ganti wallpaper sistem…")
+        m.add(0, 3, 0, if (Th.dark) "Beralih ke mode terang" else "Beralih ke mode gelap")
+        m.add(0, 4, 0, "Personalisasi")
+        m.add(0, 6, 0, "Tambah widget…")
+        m.add(0, 7, 0, "Rapikan widget")
+        m.add(0, 8, 0, "Susun ikon otomatis")
+        m.add(0, 5, 0, "Segarkan")
+        pop.setOnMenuItemClickListener { item ->
+            try {
+                when (item.itemId) {
+                    1 -> {
+                        useSystemWallpaper = !useSystemWallpaper
+                        prefs.edit().putBoolean("syswp", useSystemWallpaper).apply()
+                        applyWallpaper()
+                    }
+                    2 -> startActivity(Intent.createChooser(Intent(Intent.ACTION_SET_WALLPAPER), "Pilih wallpaper"))
+                    3 -> toggleDark()
+                    4 -> openOwnWindow(SettingsActivity::class.java) { putExtra(SettingsActivity.EXTRA_PAGE, "personalize") }
+                    6 -> widgetLayer?.showPicker()
+                    7 -> widgetLayer?.arrange()
+                    8 -> {
+                        prefs.edit().remove("deskpos").apply()
+                        renderDesktop()
+                        Toast.makeText(this, "Ikon desktop disusun otomatis", Toast.LENGTH_SHORT).show()
+                    }
+                    5 -> {
+                        loadApps()
+                        refreshAll()
+                    }
+                }
+            } catch (e: Exception) {
+                Toast.makeText(this, "Aksi tidak tersedia", Toast.LENGTH_SHORT).show()
+            }
+            true
+        }
+        pop.show()
+    }
+
+    private fun showPowerMenu(anchorView: View) {
+        val pop = PopupMenu(Th.themed(this), anchorView)
+        val m = pop.menu
+        m.add(0, 1, 0, "Pengaturan")
+        m.add(0, 2, 0, "Pengaturan Android")
+        m.add(0, 3, 0, "Ganti launcher bawaan")
+        m.add(0, 4, 0, "Muat ulang launcher")
+        pop.setOnMenuItemClickListener { item ->
+            try {
+                when (item.itemId) {
+                    1 -> openSettingsApp()
+                    2 -> startActivity(Intent(Settings.ACTION_SETTINGS))
+                    3 -> startActivity(Intent(Settings.ACTION_HOME_SETTINGS))
+                    4 -> {
+                        loadApps()
+                        refreshAll()
+                    }
+                }
+            } catch (e: Exception) {
+                Toast.makeText(this, "Aksi tidak tersedia", Toast.LENGTH_SHORT).show()
+            }
+            true
+        }
+        pop.show()
+    }
+
+    private fun toggleDark() {
+        prefs.edit().putInt("theme_mode", if (Th.dark) 1 else 2).apply()
+        Th.bump(this)
+        seenRev = prefs.getInt("rev", 0)
+        recreate()
+    }
+
+    // ---------- panels ----------
+    private fun panelView(id: Int): View? = when (id) {
+        P_START -> startPanel
+        P_CAL -> calPanel
+        P_QS -> qsPanel
+        else -> null
+    }
+
+    private fun showPanel(p: View) {
+        p.animate().cancel()
+        p.visibility = View.VISIBLE
+        if (!Th.animations) {
+            p.alpha = 1f
+            p.translationY = 0f
+            return
+        }
+        p.alpha = 0f
+        p.translationY = dpf(28f)
+        p.animate().alpha(1f).translationY(0f).setDuration(180).setInterpolator(DecelerateInterpolator()).start()
+    }
+
+    private fun hidePanel(p: View) {
+        if (p.visibility != View.VISIBLE) return
+        p.animate().cancel()
+        if (!Th.animations) {
+            p.visibility = View.GONE
+            return
+        }
+        p.animate().alpha(0f).translationY(dpf(20f)).setDuration(130).withEndAction {
+            p.visibility = View.GONE
+        }.start()
+    }
+
+    private fun hideKeyboard() {
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        imm.hideSoftInputFromWindow(searchInput.windowToken, 0)
+    }
+
+    private fun setPanel(id: Int) {
+        if (id == panel) return
+        if (panel == P_START) {
+            hideKeyboard()
+            searchInput.clearFocus()
+        }
+        panelView(panel)?.let { hidePanel(it) }
+        panel = id
+        // HP: redupkan desktop saat Start terbuka supaya panel lebih menonjol
+        scrim.setBackgroundColor(if (!tablet && id != P_NONE) 0x59000000 else Color.TRANSPARENT)
+        scrim.visibility = if (id == P_NONE) View.GONE else View.VISIBLE
+        panelView(id)?.let { showPanel(it) }
+        startPill.visibility = if (id == P_START) View.VISIBLE else View.INVISIBLE
+        onPanelChanged(id)
+    }
+
+    private fun prepareStart() {
+        suppressWatcher = true
+        searchInput.setText("")
+        suppressWatcher = false
+        query = ""
+        mode = Mode.PINNED
+        renderStart()
+    }
+
+    private fun toggleStart() {
+        if (panel == P_START) {
+            closePanels()
+        } else {
+            prepareStart()
+            setPanel(P_START)
+        }
+    }
+
+    private fun openStart(focusSearch: Boolean) {
+        if (panel != P_START) {
+            prepareStart()
+            setPanel(P_START)
+        }
+        if (focusSearch) {
+            startPanel.postDelayed({
+                searchInput.requestFocus()
+                val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                imm.showSoftInput(searchInput, InputMethodManager.SHOW_IMPLICIT)
+            }, 220)
+        }
+    }
+
+    private fun toggleCalendar() {
+        if (panel == P_CAL) {
+            closePanels()
+        } else {
+            updateClock()
+            setPanel(P_CAL)
+        }
+    }
+
+    private fun toggleQs() {
+        if (panel == P_QS) {
+            closePanels()
+        } else {
+            renderQs()
+            setPanel(P_QS)
+        }
+    }
+
+    private fun closePanels() {
+        if (!::startPanel.isInitialized) return
+        setPanel(P_NONE)
+    }
+
+    // ---------- quick settings ----------
+    private fun openSys(action: String) {
+        try {
+            startActivity(Intent(action))
+            closePanels()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Pengaturan tidak tersedia", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun airplaneOn(): Boolean = try {
+        Settings.Global.getInt(contentResolver, Settings.Global.AIRPLANE_MODE_ON, 0) == 1
+    } catch (e: Exception) {
+        false
+    }
+
+    private fun powerSave(): Boolean = try {
+        (getSystemService(Context.POWER_SERVICE) as PowerManager).isPowerSaveMode
+    } catch (e: Exception) {
+        false
+    }
+
+    private fun locationOn(): Boolean = try {
+        if (Build.VERSION.SDK_INT >= 28) {
+            (getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager).isLocationEnabled
+        } else {
+            false
+        }
+    } catch (e: Exception) {
+        false
+    }
+
+    private fun qsTiles(): List<QsTile> = listOf(
+        QsTile(GlyphView.Kind.NET, "Wi-Fi", { netGlyph.net == 0 }) {
+            openSys(if (Build.VERSION.SDK_INT >= 29) Settings.Panel.ACTION_INTERNET_CONNECTIVITY else Settings.ACTION_WIFI_SETTINGS)
+        },
+        QsTile(GlyphView.Kind.BLUETOOTH, "Bluetooth", { false }) { openSys(Settings.ACTION_BLUETOOTH_SETTINGS) },
+        QsTile(GlyphView.Kind.AIRPLANE, "Pesawat", { airplaneOn() }) { openSys(Settings.ACTION_AIRPLANE_MODE_SETTINGS) },
+        QsTile(GlyphView.Kind.BATTERY, "Hemat daya", { powerSave() }) { openSys(Settings.ACTION_BATTERY_SAVER_SETTINGS) },
+        QsTile(GlyphView.Kind.MOON, "Mode gelap", { Th.dark }) { toggleDark() },
+        QsTile(GlyphView.Kind.PIN, "Lokasi", { locationOn() }) { openSys(Settings.ACTION_LOCATION_SOURCE_SETTINGS) },
+        QsTile(GlyphView.Kind.CAST, "Cast", { false }) { openSys(Settings.ACTION_CAST_SETTINGS) },
+        QsTile(GlyphView.Kind.ACCESS, "Aksesibilitas", { false }) { openSys(Settings.ACTION_ACCESSIBILITY_SETTINGS) }
+    )
+
+    private fun renderQs() {
+        qsGrid.removeAllViews()
+        for (rowTiles in qsTiles().chunked(4)) {
+            val row = ll(false)
+            for (t in rowTiles) {
+                val on = t.active()
+                val cell = ll(true, Gravity.CENTER).apply {
+                    background = if (on) rounded(Th.accent, dpf(8f)) else rounded(Th.p.card, dpf(8f), Th.p.stroke, dp(1))
+                    setPadding(dp(4), dp(10), dp(4), dp(8))
+                    setOnClickListener { t.click() }
+                }
+                cell.addView(
+                    icon(t.kind, if (on) Th.onAccent else Th.p.text),
+                    LinearLayout.LayoutParams(dp(22), dp(22))
+                )
+                cell.addView(
+                    tv(t.label, 11f, if (on) Th.onAccent else Th.p.dim).apply {
+                        maxLines = 1
+                        ellipsize = TextUtils.TruncateAt.END
+                        gravity = Gravity.CENTER
+                        setPadding(0, dp(6), 0, 0)
+                    },
+                    LinearLayout.LayoutParams(MATCH, WRAP)
+                )
+                row.addView(cell, LinearLayout.LayoutParams(0, WRAP, 1f).apply { setMargins(dp(3), dp(3), dp(3), dp(3)) })
+            }
+            for (i in rowTiles.size until 4) row.addView(Space(this), LinearLayout.LayoutParams(0, 1, 1f))
+            qsGrid.addView(row)
+        }
+        syncSliders()
+    }
+
+    private fun syncSliders() {
+        val b = try {
+            Settings.System.getInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS)
+        } catch (e: Exception) {
+            128
+        }
+        brightSeek.progress = clampInt(b, 0, 255)
+        volSeek.progress = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
+    }
+
+    private fun setBrightness(v: Int) {
+        if (Settings.System.canWrite(this)) {
+            try {
+                Settings.System.putInt(
+                    contentResolver, Settings.System.SCREEN_BRIGHTNESS_MODE,
+                    Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL
+                )
+                Settings.System.putInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS, clampInt(v, 1, 255))
+            } catch (e: Exception) {
+                // abaikan
+            }
+        } else if (!askedWriteSettings) {
+            askedWriteSettings = true
+            Toast.makeText(this, "Izinkan perubahan pengaturan sistem untuk mengatur kecerahan", Toast.LENGTH_LONG).show()
+            try {
+                startActivity(Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:$packageName")))
+            } catch (e: Exception) {
+                // abaikan
+            }
+        }
+    }
+
+    // ---------- clock / battery / network ----------
+    private fun updateClock() {
+        if (!::timeText.isInitialized) return
+        val now = Date()
+        val time = DateFormat.getTimeFormat(this).format(now)
+        timeText.text = time
+        dateText.text = DateFormat.getDateFormat(this).format(now)
+        calTime.text = time
+        calDate.text = SimpleDateFormat("EEEE, d MMMM yyyy", Locale.getDefault()).format(now)
+        widgetLayer?.tick()
+    }
+
+    private fun updateBattery(i: Intent) {
+        val lvl = i.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+        val scale = i.getIntExtra(BatteryManager.EXTRA_SCALE, 100)
+        val st = i.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+        val charging = st == BatteryManager.BATTERY_STATUS_CHARGING || st == BatteryManager.BATTERY_STATUS_FULL
+        if (lvl >= 0 && scale > 0) {
+            val pct = lvl * 100 / scale
+            battGlyph.level = pct
+            qsBatt.text = "Baterai $pct%" + if (charging) "  •  mengisi daya" else ""
+        }
+        battGlyph.charging = charging
+        widgetLayer?.tick()
+    }
+
+    private fun reg(r: BroadcastReceiver, f: IntentFilter): Intent? =
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(r, f, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(r, f)
+        }
+
+    private val timeReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            updateClock()
+        }
+    }
+
+    private val battReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent != null) updateBattery(intent)
+        }
+    }
+
+    private val reloadApps = Runnable {
+        loadApps()
+        refreshAll()
+    }
+
+    private val pkgReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            handler.removeCallbacks(reloadApps)
+            handler.postDelayed(reloadApps, 600)
+        }
+    }
+
+    private var netRegistered = false
+
+    private val netCb = object : ConnectivityManager.NetworkCallback() {
+        override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+            val m = when {
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> 0
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> 1
+                else -> 2
+            }
+            runOnUiThread { netGlyph.net = m }
+        }
+
+        override fun onLost(network: Network) {
+            runOnUiThread { netGlyph.net = 2 }
+        }
+    }
+
+    private fun registerNet() {
+        try {
+            val cm = getSystemService(ConnectivityManager::class.java)
+            if (cm.activeNetwork == null) netGlyph.net = 2
+            cm.registerDefaultNetworkCallback(netCb)
+            netRegistered = true
+        } catch (e: Exception) {
+            netRegistered = false
+        }
+    }
+
+    private fun unregisterNet() {
+        if (!netRegistered) return
+        try {
+            getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(netCb)
+        } catch (e: Exception) {
+            // sudah dilepas
+        }
+        netRegistered = false
+    }
+}
+
+
+/** Kalkulator kecil: + - * / ^ dan kurung. Mengembalikan teks hasil, atau null bila bukan ekspresi hitung. */
+internal fun calc(input: String): String? {
+    val s = input.replace(" ", "").replace(',', '.').replace('x', '*').replace('X', '*')
+        .replace('\u00D7', '*').replace('\u00F7', '/')
+    if (s.isEmpty() || !s.any { it.isDigit() } || !s.any { it in "+-*/^" }) return null
+    if (s.any { !(it.isDigit() || it in "+-*/^().") }) return null
+    return try {
+        val v = ExprParser(s).parse()
+        if (v.isNaN() || v.isInfinite()) null
+        else java.math.BigDecimal(v).setScale(8, java.math.RoundingMode.HALF_UP).stripTrailingZeros().toPlainString()
+    } catch (e: Exception) {
+        null
+    }
+}
+
+private class ExprParser(private val s: String) {
+    private var pos = 0
+    private fun peek(): Char = if (pos < s.length) s[pos] else '\u0000'
+
+    fun parse(): Double {
+        val v = expr()
+        if (pos != s.length) throw IllegalArgumentException()
+        return v
+    }
+
+    private fun expr(): Double {
+        var v = term()
+        while (peek() == '+' || peek() == '-') {
+            val op = s[pos++]
+            val r = term()
+            v = if (op == '+') v + r else v - r
+        }
+        return v
+    }
+
+    private fun term(): Double {
+        var v = power()
+        while (peek() == '*' || peek() == '/') {
+            val op = s[pos++]
+            val r = power()
+            v = if (op == '*') v * r else v / r
+        }
+        return v
+    }
+
+    private fun power(): Double {
+        val b = unary()
+        if (peek() == '^') {
+            pos++
+            return Math.pow(b, power())
+        }
+        return b
+    }
+
+    private fun unary(): Double {
+        if (peek() == '-') { pos++; return -unary() }
+        if (peek() == '+') { pos++; return unary() }
+        return atom()
+    }
+
+    private fun atom(): Double {
+        if (peek() == '(') {
+            pos++
+            val v = expr()
+            if (peek() != ')') throw IllegalArgumentException()
+            pos++
+            return v
+        }
+        val start = pos
+        while (peek().isDigit() || peek() == '.') pos++
+        if (start == pos) throw IllegalArgumentException()
+        return s.substring(start, pos).toDouble()
+    }
+}
